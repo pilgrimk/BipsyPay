@@ -11,7 +11,7 @@ $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
 $requestfundid = '########';
 // $runfunding = (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid);
-$runfunding = true;
+$runfunding = false;                // set this to TRUE when ready to actually FUND !!
 
 if (isset($_REQUEST['testingenv'])) {
     $apiurl = "https://uat-fd-pfac-c-api.technologi.co.uk/";
@@ -189,7 +189,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         CURLOPT_TIMEOUT => 0,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        CURLOPT_CAINFO => $curlcertpath,
+        // CURLOPT_CAINFO => $curlcertpath,
         CURLOPT_CUSTOMREQUEST => $request,
         CURLOPT_POSTFIELDS => $postfields,
         CURLOPT_HTTPHEADER => array(
