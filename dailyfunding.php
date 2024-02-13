@@ -43,14 +43,14 @@ function run_merchants($db)
     $starttime = date('Y-m-d H:i:s');
     if (isset($_REQUEST['testingenv'])) {
         $runtype = "testenv";
-        if (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid) {
+        if ($runfunding) {
             $runtype = "testenvfund";
         }
         $extramerchsql = " and merchant_name like 'Test%' ";
     } else {
         $extramerchsql = " and merchant_name not like 'Test%' ";
         $runtype = "prodcheck";
-        if (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid) {
+        if ($runfunding) {
             $runtype = "prodfund";
         }
     }
