@@ -241,7 +241,7 @@ function gettableforemail($res, $resheader, $cssclass = 'paleBlueRows')
 }
 function sendFundingLogEmail($emailHTML)
 {
-  $credentials = SendinBlue\Client\Configuration::getDefaultConfiguration()->setApiKey('api-key', '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');
+  $credentials = SendinBlue\Client\Configuration::getDefaultConfiguration()->setApiKey('api-key', 'XXXXXX');
   $apiInstance = new SendinBlue\Client\Api\TransactionalEmailsApi(new GuzzleHttp\Client(), $credentials);
 
 
