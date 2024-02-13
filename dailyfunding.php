@@ -1,15 +1,16 @@
 <?php
+// BEGIN MAIN PHP script ---------------------------------------------
+echo "Running dailyfunding... <br>";
 // if (!isset($_GET['lock']) || $_GET['lock'] != 'eCZNZTlId2dRcWpWJDln') {
 //     exit();
 // }
 
-//echo phpinfo();
-//$dbBP = connectCMDB("127.0.0.1","dbarney_webtools","dbarney_webtools","PASSWORD","MYSQL");
-
+// GLOBAl variable declarations
 $apiurl = "https://api.carat-platforms.fiserv.com/";
 $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
 $requestfundid = '########';
+// $runfunding = (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid);
 $runfunding = true;
 
 if (isset($_REQUEST['testingenv'])) {
@@ -29,10 +30,15 @@ $access_token = gettoken($db);
 
 echo run_merchants($db);
 
+// END MAIN PHP script -----------------------------------------------
+// *******************************************************************
 
+
+// BEGIN function and class declarations -----------------------------
 function run_merchants($db)
 {
     global $requestfundid;
+    global $runfunding;
 
     $starttime = date('Y-m-d H:i:s');
     if (isset($_REQUEST['testingenv'])) {
@@ -86,11 +92,12 @@ function run_merchants($db)
         }
 
         if ($merchant_acct_balance != 'error') {
+            //echo "Merchant: {$merchant['mid']} - {$merchant['merchant_name']}, merchant_acct_balance: {$merchant_acct_balance} <br>";
+
             if ($merchant_acct_balance > 0) {
                 $runcount++;
 
                 if (isset($_REQUEST['testingenv'])) {
-
                     $merchant_acct_balance = round($merchant_acct_balance / 600, 2);
                 }
 
@@ -118,7 +125,8 @@ function run_merchants($db)
                 // echo "Disc Rate Bal - $disc_rate_dollars <br>";
                 // echo "Log ID - $ballogid <br>";
 
-                if (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid) {
+                if ($runfunding) {
+                    // echo "running funding... <br>";
 
                     if ($merchant['mid'] == '140920210021') {
                         $merchant['mid'] = '1234';
@@ -142,7 +150,6 @@ function run_merchants($db)
                 }                
 
                 $logsql = "INSERT INTO fund_log (mid, fund_date, receipts, deposits, fees,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant['mid']}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
-
                 // echo $logsql . "<br>";
 
                 $insert = $db->query($logsql);
@@ -182,7 +189,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         CURLOPT_TIMEOUT => 0,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        // CURLOPT_CAINFO => $curlcertpath,
+        CURLOPT_CAINFO => $curlcertpath,
         CURLOPT_CUSTOMREQUEST => $request,
         CURLOPT_POSTFIELDS => $postfields,
         CURLOPT_HTTPHEADER => array(
@@ -209,7 +216,6 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
 function funding($db, $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars, $merchant_id, $recon_type, $runlogid)
 {
     global $access_token;
-    global $runfunding;
     $accounts_array = null;
 
     if ($recon_type == 0) {
@@ -219,7 +225,7 @@ function funding($db, $merchant_acct_balance, $merchant_dollars, $disc_rate_doll
     }
 
     if (!is_null($accounts_array)) {
-        list($apires, $logid) = api_call($db, 'funding/instruction', array('merchant_id' => $merchant_id, 'currency' => 'USD', 'total_amount' => $merchant_acct_balance, "accounts" => $accounts_array), $access_token, $runlogid, $runfunding);
+        list($apires, $logid) = api_call($db, 'funding/instruction', array('merchant_id' => $merchant_id, 'currency' => 'USD', 'total_amount' => $merchant_acct_balance, "accounts" => $accounts_array), $access_token, $runlogid);
     }
 
     if (is_null($apires)) {
@@ -240,7 +246,7 @@ function funding($db, $merchant_acct_balance, $merchant_dollars, $disc_rate_doll
 function get_hold_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
-    list($apires, $logid) = api_call($db, 'account/balance', array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT"), $access_token, $runlogid, true);
+    list($apires, $logid) = api_call($db, 'account/balance', array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT"), $access_token, $runlogid);
 
     if (is_null($apires)) {
         $data = null;
@@ -248,16 +254,14 @@ function get_hold_balance($db, $merchant_id, $runlogid)
         $data = json_decode($apires, TRUE);
     }
 
-    if (is_null($data)) {
-        return array('error', $logid);
-    } elseif (isset($data['error'])) {
+    if (is_null($data) || isset($data['error'])) {
         return array('error', $logid);
     } else {
         return array($data['account']['balance'], $logid);
     }
 }
 
-function api_call($db, $method, $postarr, $token, $runlogid, $run_api_call)
+function api_call($db, $method, $postarr, $token, $runlogid)
 {
     global $apiurl;
 
@@ -274,12 +278,7 @@ function api_call($db, $method, $postarr, $token, $runlogid, $run_api_call)
     $request = 'POST';
     $postfields = $poststring2;
     $authorization = 'Authorization: Bearer ' . $token;
-    if ($run_api_call) {
-        $response = make_curl_call($verbose, $url, $request, $postfields, $authorization);
-    } else {
-        $response = null;
-        //echo "make_curl_call NOT called";
-    }
+    $response = make_curl_call($verbose, $url, $request, $postfields, $authorization);
 
     $curlurl = $apiurl . $method;
     $curlrequeststr = var_export($postarr, true);
@@ -367,7 +366,7 @@ function gettoken($db)
             $insert = $db->query("INSERT INTO tokens (token) VALUES ('{$data['access_token']}')");
         }
 
-        if (!is_null($data)) {
+        if (!is_null($data) && isset($data['access_token'])) {
             return $data['access_token'];
         } else {
             return NULL;
@@ -391,12 +390,9 @@ function check_token_ok($db)
     $tokens = $db->query('SELECT * from tokens where tokenactive = 1 order by tokenstartdate desc')->fetchAll();
     if (count($tokens) == 0) {
         return false;
+    } else {
+        return true;
     }
-    return true;
-    //if active token, use token to call GET ACCOUNT BALANCE, if not $array['result'] = "SUCCESS" THEN return false
-
-    //if $array['result'] = "SUCCESS" then return true
-
 }
 
 function test_api_call($token)
@@ -423,7 +419,6 @@ function test_api_call($token)
         return ($data['result'] == 'SUCCESS');
     }
 }
-
 
 class db
 {
@@ -478,7 +473,6 @@ class db
         }
         return $this;
     }
-
 
     public function fetchAll($callback = null)
     {
@@ -563,3 +557,5 @@ class db
         return 'b';
     }
 }
+// END function and class declarations -------------------------------
+// *******************************************************************
