@@ -11,7 +11,7 @@ $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
 $requestfundid = '########';
 // $runfunding = (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid);
-$runfunding = true;
+$runfunding = true;                // set this to TRUE only when ready to actually FUND !!
 
 if (isset($_REQUEST['testingenv'])) {
     $apiurl = "https://uat-fd-pfac-c-api.technologi.co.uk/";
@@ -43,14 +43,14 @@ function run_merchants($db)
     $starttime = date('Y-m-d H:i:s');
     if (isset($_REQUEST['testingenv'])) {
         $runtype = "testenv";
-        if (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid) {
+        if ($runfunding) {
             $runtype = "testenvfund";
         }
         $extramerchsql = " and merchant_name like 'Test%' ";
     } else {
         $extramerchsql = " and merchant_name not like 'Test%' ";
         $runtype = "prodcheck";
-        if (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid) {
+        if ($runfunding) {
             $runtype = "prodfund";
         }
     }
@@ -147,7 +147,7 @@ function run_merchants($db)
                     echo "<pre>";
                     echo var_dump($errorres);
                     echo "</pre>";
-                }                
+                }
 
                 $logsql = "INSERT INTO fund_log (mid, fund_date, receipts, deposits, fees,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant['mid']}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
                 // echo $logsql . "<br>";
@@ -189,7 +189,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         CURLOPT_TIMEOUT => 0,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        CURLOPT_CAINFO => $curlcertpath,
+        // CURLOPT_CAINFO => $curlcertpath,
         CURLOPT_CUSTOMREQUEST => $request,
         CURLOPT_POSTFIELDS => $postfields,
         CURLOPT_HTTPHEADER => array(
