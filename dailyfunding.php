@@ -1,16 +1,13 @@
 <?php
 // BEGIN MAIN PHP script ---------------------------------------------
 echo "Running dailyfunding... <br>";
-// if (!isset($_GET['lock']) || $_GET['lock'] != 'eCZNZTlId2dRcWpWJDln') {
-//     exit();
-// }
 
 // GLOBAl variable declarations
 $apiurl = "https://api.carat-platforms.fiserv.com/";
 $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
-$requestfundid = '########';
-// $runfunding = (isset($_REQUEST['fund']) && $_REQUEST['fund'] == $requestfundid);
+// $next_day_funding = false;
+ $next_day_funding = (isset($_REQUEST['NDF']) && $_REQUEST['NDF'] == 1);
 $runfunding = false;                // set this to TRUE when ready to actually FUND !!
 
 if (isset($_REQUEST['testingenv'])) {
@@ -19,10 +16,10 @@ if (isset($_REQUEST['testingenv'])) {
     $apipassword = 'PASSWORD';
 }
 
-$dbhost = 'localhost';
-$dbuser = 'USER_NAME';
-$dbpass = 'PASSWORD';
-$dbname = 'dbarney_webtools';
+// $dbhost = 'localhost';
+// $dbuser = 'USER_NAME';
+// $dbpass = 'PASSWORD';
+// $dbname = 'dbarney_webtools';
 
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
 $access_token = gettoken($db);
@@ -37,7 +34,7 @@ echo run_merchants($db);
 // BEGIN function and class declarations -----------------------------
 function run_merchants($db)
 {
-    global $requestfundid;
+    global $next_day_funding;
     global $runfunding;
 
     $starttime = date('Y-m-d H:i:s');
@@ -59,8 +56,15 @@ function run_merchants($db)
     $db->query($inssql);
     $runlogid = $db->lastInsertID();
 
-    //get res of all active merchants
-    $merchants = $db->query("SELECT * from merchants where active = 1 $extramerchsql order by added asc")->fetchAll();
+    // check NEXT_DAY_FUNDING flag
+    if ($next_day_funding) {
+        // get res of all active, next_day_funding merchants
+        $merchants = $db->query("SELECT * from merchants where active = 1 and next_day_funding = 1 $extramerchsql order by added asc")->fetchAll();
+    } else {
+        // get res of all active merchants
+        $merchants = $db->query("SELECT * from merchants where active = 1 $extramerchsql order by added asc")->fetchAll();
+    };
+
     echo "<pre>";
     echo var_dump($merchants);
     echo "</pre>";
@@ -147,7 +151,7 @@ function run_merchants($db)
                     echo "<pre>";
                     echo var_dump($errorres);
                     echo "</pre>";
-                }                
+                }
 
                 $logsql = "INSERT INTO fund_log (mid, fund_date, receipts, deposits, fees,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant['mid']}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
                 // echo $logsql . "<br>";
