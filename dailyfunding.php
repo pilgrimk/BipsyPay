@@ -41,12 +41,14 @@ function run_merchants($db)
     if (isset($_REQUEST['testingenv'])) {
         $runtype = "testenv";
         if ($runfunding) {
+        if ($runfunding) {
             $runtype = "testenvfund";
         }
         $extramerchsql = " and merchant_name like 'Test%' ";
     } else {
         $extramerchsql = " and merchant_name not like 'Test%' ";
         $runtype = "prodcheck";
+        if ($runfunding) {
         if ($runfunding) {
             $runtype = "prodfund";
         }
@@ -152,6 +154,7 @@ function run_merchants($db)
                     echo var_dump($errorres);
                     echo "</pre>";
                 }
+                }
 
                 $logsql = "INSERT INTO fund_log (mid, fund_date, receipts, deposits, fees,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant['mid']}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
                 // echo $logsql . "<br>";
@@ -193,6 +196,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         CURLOPT_TIMEOUT => 0,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        // CURLOPT_CAINFO => $curlcertpath,
         // CURLOPT_CAINFO => $curlcertpath,
         CURLOPT_CUSTOMREQUEST => $request,
         CURLOPT_POSTFIELDS => $postfields,
