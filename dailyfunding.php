@@ -16,10 +16,10 @@ if (isset($_REQUEST['testingenv'])) {
     $apipassword = 'PASSWORD';
 }
 
-// $dbhost = 'localhost';
-// $dbuser = 'USER_NAME';
-// $dbpass = 'PASSWORD';
-// $dbname = 'dbarney_webtools';
+$dbhost = 'localhost';
+$dbuser = 'USER_NAME';
+$dbpass = 'PASSWORD';
+$dbname = 'dbarney_webtools';
 
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
 $access_token = gettoken($db);
