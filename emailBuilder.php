@@ -5,15 +5,12 @@
 require_once('db.php');
 require_once(__DIR__ . '/vendor/autoload.php');
 
-
-
 $dbhost = 'localhost';
 $dbuser = 'dbarney_webtools';
 $dbpass = 'Ka5Wvw-8FeY5';
 $dbname = 'dbarney_webtools';
 
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
-
 
 if (isset($_REQUEST['testenv'])) {
 
@@ -34,15 +31,17 @@ if (isset($_REQUEST['datetodo'])) {
   $datetodo = date("Y-m-d", strtotime($_REQUEST['datetodo']));
 }
 
-
-
-
 #FUNDING LOG
 $fundingdetailsql = "SELECT
-merchants.mid as \"Merchant ID\",
+	merchants.mid as \"Merchant ID\",
 	merchants.merchant_name as \"Merchant\", 
 	merchants.location_name as \"Location\", 
 	fund_log.fund_date \"Run Time\", 
+	merchants.next_day_funding \"Next Day Funding\", 
+	CASE 
+		WHEN merchants.next_day_funding = 1 THEN \"X\"
+		ELSE null
+	END \"Next Day Funding\",  
 	fund_log.receipts as \"Starting Balance\", 
 	fund_log.deposits as \"Deposit\", 
 	fund_log.fees as \"Fee\", 
@@ -51,22 +50,21 @@ FROM
 	fund_log
 	INNER JOIN
 	merchants
-	ON 
-		fund_log.mid = merchants.mid
-	INNER JOIN
-	run_log
-	ON 
-		fund_log.runid = run_log.id
-		
-		where run_log.runtype like '{$runtype}%' and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59';";
-
+ON 
+	fund_log.mid = merchants.mid
+INNER JOIN
+  run_log
+ON 
+	fund_log.runid = run_log.id
+WHERE 
+  run_log.runtype like '{$runtype}%' and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59'
+ORDER BY 
+  merchants.next_day_funding DESC, fund_log.fund_date DESC;";
 
 #Active Merchants No Balance
 $activezerobalsql = "select merchants.mid as \"Merchant ID\",
 	merchants.merchant_name as \"Merchant\", 
 	merchants.location_name as \"Location\",processed as \"Last Funding\" from merchants where mid not in (select mid from fund_log where receipts>0 and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59' and fund_logid != 0) and active = 1 and {$merchantmask};";
-
-
 
 #Error Detail
 $errordetsql = "select datelogged as \"When\",replace(url,'https://fd-pfac-api.technologi.co.uk/','') as \"Api Method\",request as \"Request\",response as \"Response\" from api_log where datelogged >= '{$datetodo} 00:00:00' and datelogged <= '{$datetodo} 23:59:59' and haserror = 1 and {$urlmask};";
@@ -93,9 +91,7 @@ if ((isset($_REQUEST['testenv']))) {
   $summaryfundsql .= "and endbal = 0 and errorcount = 0; ";
 }
 
-
 //echo $summaryfundsql;
-
 
 #summary error
 $summaryerrsql = "select count(DISTINCT fund_log.mid) as \"MIDS\",sum(fund_log.receipts) as \"Gross\",sum(errorcount) as \"Errors\" FROM
@@ -156,6 +152,7 @@ table.paleBlueRows tfoot td {
   font-size: 14px;
 }</style></head>";
 
+// echo "<pre>"; echo var_dump($fundingdetailsql); echo "</pre>";
 
 $fundingdetailsqlres = $db->query($fundingdetailsql)->fetchAll();
 $activezerobalsqlres = $db->query($activezerobalsql)->fetchAll();
@@ -175,13 +172,10 @@ $emailbody .= count($fundingdetailsqlres) > 0 ? gettableforemail($fundingdetails
 
 $emailbody .= count($errordetsqlres) > 0 ? gettableforemail($errordetsqlres, "Error Detail") : '';
 
-
-
 echo $emailbody;
 //echo $emailcss . gettableforemail($fundingdetailsqlres,"Funding Detail");
 
 //echo gettableforemail($activezerobalsqlres,"Active Merchants with zero starting balance");
-
 
 if (isset($_REQUEST['skipemail'])) {
   echo "NO EMAIL";
@@ -189,19 +183,8 @@ if (isset($_REQUEST['skipemail'])) {
   sendFundingLogEmail($emailbody);
 }
 
-
-
-
-
-
-
-
-
-
-
 function gettableforemail($res, $resheader, $cssclass = 'paleBlueRows')
 {
-
   $dollarfieldsarr = array('Gross', 'Starting Balance', 'Deposit', 'Fee', 'Fees', 'Ending Balance');
 
   if (count($res) == 0 || $res[0]['MIDS'] == '0') {
@@ -215,7 +198,6 @@ function gettableforemail($res, $resheader, $cssclass = 'paleBlueRows')
   $headerrow = "<tr><th>" . implode('</th><th>', $headerarr) . "</th></tr>";
 
   foreach ($res as $resrow) {
-
     if (isset($thisrowarr)) {
       unset($thisrowarr);
     }
@@ -236,7 +218,6 @@ function gettableforemail($res, $resheader, $cssclass = 'paleBlueRows')
 
   $body .= $tablebody;
 
-
   return $body;
 }
 function sendFundingLogEmail($emailHTML)
@@ -244,10 +225,9 @@ function sendFundingLogEmail($emailHTML)
   $credentials = SendinBlue\Client\Configuration::getDefaultConfiguration()->setApiKey('api-key', 'XXXXXX');
   $apiInstance = new SendinBlue\Client\Api\TransactionalEmailsApi(new GuzzleHttp\Client(), $credentials);
 
-
   /* to:	Mark Smith <marksmith@bipsypay.com>
-cc:	"msamaniego cash-llc.com" <msamaniego@cash-llc.com>,
-"jforsyth cash-llc.com" <Jforsyth@cash-llc.com>*/
+  cc:	"msamaniego cash-llc.com" <msamaniego@cash-llc.com>,
+  "jforsyth cash-llc.com" <Jforsyth@cash-llc.com>*/
 
   $sendSmtpEmail = new \SendinBlue\Client\Model\SendSmtpEmail([
     'subject' => 'Bipsypay API Funding Report ' . date('Y-m-d'),
@@ -256,7 +236,8 @@ cc:	"msamaniego cash-llc.com" <msamaniego@cash-llc.com>,
     'to' => [ //[ 'name' => 'Donald Kirchner', 'email' => 'donald.kirchner@gmail.com']
       ['name' => 'Mark Smith', 'email' => 'marksmith@bipsypay.com'],
       ['name' => 'msamaniego cash-llc.com', 'email' => 'msamaniego@cash-llc.com'],
-      ['name' => 'Jforsyth@cash-llc.com', 'email' => 'Jforsyth@cash-llc.com']
+      ['name' => 'Jforsyth@cash-llc.com', 'email' => 'Jforsyth@cash-llc.com'],
+      ['name' => 'Kevin Pilgrim', 'email' => 'pilgrimka1@yahoo.com']
     ],
     // 'cc' => [[ 'name' => 'Donald Kirchner', 'email' => 'donald.kirchner@gmail.com']],    
     //  'bcc' => [[ 'name' => 'Donald Kirchner', 'email' => 'donald.kirchner@gmail.com']],
