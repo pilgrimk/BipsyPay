@@ -21,6 +21,12 @@ $dbuser = 'USER_NAME';
 $dbpass = 'PASSWORD';
 $dbname = 'dbarney_webtools';
 
+// account types
+$REVENUE_ACCOUNT = 'REVENUE_ACCOUNT';
+$FEE_ACCOUNT = 'FEE_ACCOUNT';
+$HOLD_ACCOUNT = 'HOLD_ACCOUNT';
+$CHARGEBACK_ACCOUNT = 'CHARGEBACK_ACCOUNT';
+
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
 $access_token = gettoken($db);
 // echo "main, access_token: $access_token" . "<br>";
@@ -65,9 +71,7 @@ function run_merchants($db)
         $merchants = $db->query("SELECT * from merchants where active = 1 $extramerchsql order by added asc")->fetchAll();
     };
 
-    echo "<pre>";
-    echo var_dump($merchants);
-    echo "</pre>";
+    echo "<pre>";echo var_dump($merchants);echo "</pre>";
 
     $runcount = 0;
     $merchcount = count($merchants);
@@ -96,7 +100,7 @@ function run_merchants($db)
         }
 
         if ($merchant_acct_balance != 'error') {
-            //echo "Merchant: {$merchant['mid']} - {$merchant['merchant_name']}, merchant_acct_balance: {$merchant_acct_balance} <br>";
+            // echo "Merchant: {$merchant['mid']} - {$merchant['merchant_name']}, merchant_acct_balance: {$merchant_acct_balance} <br>";
 
             if ($merchant_acct_balance > 0) {
                 $runcount++;
@@ -121,6 +125,12 @@ function run_merchants($db)
                     $disc_rate_dollars = round($merchant_acct_balance - ($merchant_acct_balance  / (1 + $merchant['disc_rate'])), 2);
                 }
 
+                $fund_amounts = build_fund_amounts( $merchant_dollars, 
+                                                    $disc_rate_dollars, 
+                                                    $disc_rate_dollars, 
+                                                    $disc_rate_dollars,
+                                                    $merchant['recon_type']);                                      
+
                 // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']} {$merchant['location_name']}<br>";
                 // echo "Reconcile Type - {$merchant['recon_type']}, Surcharge - {$merchant['surcharge']}, Next Day Funding - {$merchant['next_day_funding']}<br>";
                 // echo "Acct Bal - $merchant_acct_balance <br>";
@@ -129,13 +139,13 @@ function run_merchants($db)
                 // echo "Disc Rate Bal - $disc_rate_dollars <br>";
                 // echo "Log ID - $ballogid <br>";
 
-                if ($runfunding) {
+                if ($runfunding && (!is_null($fund_amounts))) {
                     // echo "running funding... <br>";
 
                     if ($merchant['mid'] == '140920210021') {
                         $merchant['mid'] = '1234';
                     }
-                    list($fundingres, $fundlogid) = funding($db, $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars, $merchant['mid'], $merchant['recon_type'], $runlogid);
+                    list($fundingres, $fundlogid) = funding($db, $merchant_acct_balance, $fund_amounts, $merchant['mid'], $runlogid);
                     $fundcount++;
                 }
 
@@ -148,18 +158,14 @@ function run_merchants($db)
                 $errorres = $db->query("SELECT count(*) as errorcount from api_log where id in ($ballogid,$fundlogid,$balafterlogid) and haserror = 1")->fetchAll();
                 $errorcount = $errorres[0]['errorcount'];
                 if ($errorcount > 0) {
-                    echo "<pre>";
-                    echo var_dump($errorres);
-                    echo "</pre>";
+                    echo "<pre>";echo var_dump($errorres);echo "</pre>";
                 }
 
                 $logsql = "INSERT INTO fund_log (mid, fund_date, receipts, deposits, fees,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant['mid']}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
                 // echo $logsql . "<br>";
 
                 $insert = $db->query($logsql);
-                // echo "<pre>";
-                // echo var_dump($insert);
-                // echo "</pre>";
+                // echo "<pre>";echo var_dump($insert);echo "</pre>";
 
                 $finallogid = $db->lastInsertID();
 
@@ -210,26 +216,26 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         echo $e;
         return null;
     } else {
-        // echo "<prev>";
-        // print_r($server_response);
-        // echo "</prev>";
+        // echo "<pre>";echo var_dump($server_response);echo "</pre>";
         return $server_response;
     };
 }
 
-function funding($db, $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars, $merchant_id, $recon_type, $runlogid)
+function funding(   $db, 
+                    $merchant_acct_balance, 
+                    $funding_amounts, 
+                    $merchant_id, 
+                    $runlogid)
 {
     global $access_token;
     $accounts_array = null;
+    $apires = null; 
+    $logid = 0;
 
-    if ($recon_type == 0) {
-        $accounts_array = array(array('account_type' => 'REVENUE_ACCOUNT', 'amount' => $merchant_dollars), array('account_type' => 'FEE_ACCOUNT', 'amount' => $disc_rate_dollars));
-    } elseif ($recon_type == 1) {
-        $accounts_array = array(array('account_type' => 'REVENUE_ACCOUNT', 'amount' => $merchant_dollars));
-    }
-
+    $accounts_array = build_funding_accounts($funding_amounts);
     if (!is_null($accounts_array)) {
-        list($apires, $logid) = api_call($db, 'funding/instruction', array('merchant_id' => $merchant_id, 'currency' => 'USD', 'total_amount' => $merchant_acct_balance, "accounts" => $accounts_array), $access_token, $runlogid);
+        $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', 'total_amount' => $merchant_acct_balance, "accounts" => $accounts_array);
+        list($apires, $logid) = api_call($db, 'funding/instruction', $postarr, $access_token, $runlogid);
     }
 
     if (is_null($apires)) {
@@ -250,7 +256,8 @@ function funding($db, $merchant_acct_balance, $merchant_dollars, $disc_rate_doll
 function get_hold_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
-    list($apires, $logid) = api_call($db, 'account/balance', array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT"), $access_token, $runlogid);
+    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT");
+    list($apires, $logid) = api_call($db, 'account/balance', $postarr, $access_token, $runlogid);
 
     if (is_null($apires)) {
         $data = null;
@@ -263,6 +270,56 @@ function get_hold_balance($db, $merchant_id, $runlogid)
     } else {
         return array($data['account']['balance'], $logid);
     }
+}
+
+function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $hold_rate_dollars, $chargeback_rate_dollars, $recon_type)
+{
+    global $REVENUE_ACCOUNT;
+    global $FEE_ACCOUNT;
+    global $HOLD_ACCOUNT;
+    global $CHARGEBACK_ACCOUNT;
+    $amounts = [];
+
+    if ($merchant_dollars > 0) {
+        $amounts[$REVENUE_ACCOUNT] = $merchant_dollars;
+    }
+    if ($disc_rate_dollars > 0) {
+        $amounts[$FEE_ACCOUNT] = $disc_rate_dollars;
+    }
+    if ($hold_rate_dollars > 0) {
+        $amounts[$HOLD_ACCOUNT] = $hold_rate_dollars;
+    }
+    if ($chargeback_rate_dollars > 0) {
+        $amounts[$CHARGEBACK_ACCOUNT] = $chargeback_rate_dollars;
+    }
+
+    echo "<pre>";echo var_dump($amounts);echo "</pre>";
+    return $amounts;   
+}
+
+function build_funding_accounts($fund_amounts)
+{
+    global $REVENUE_ACCOUNT;
+    global $FEE_ACCOUNT;
+    global $HOLD_ACCOUNT;
+    global $CHARGEBACK_ACCOUNT;
+    $accounts = [];
+
+    if (isset($fund_amounts[$REVENUE_ACCOUNT])) {
+        $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT]);
+    }
+    if (isset($fund_amounts[$FEE_ACCOUNT])) {
+        $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT]);
+    }
+    if (isset($fund_amounts[$HOLD_ACCOUNT])) {
+        $accounts[] = array('account_type' => $HOLD_ACCOUNT, 'amount' => $fund_amounts[$HOLD_ACCOUNT]);
+    }
+    if (isset($fund_amounts[$CHARGEBACK_ACCOUNT])) {
+        $accounts[] = array('account_type' => $CHARGEBACK_ACCOUNT, 'amount' => $fund_amounts[$CHARGEBACK_ACCOUNT]);
+    }
+
+    echo "<pre>";echo var_dump($accounts);echo "</pre>";
+    return $accounts;
 }
 
 function api_call($db, $method, $postarr, $token, $runlogid)
@@ -301,9 +358,7 @@ function api_call($db, $method, $postarr, $token, $runlogid)
     }
 
     $insert = $db->query("INSERT INTO api_log (url,request,response,haserror,runid) VALUES ('{$curlurl}','" . addslashes($curlrequeststr) . "','" . addslashes($curlresponsestr) . "',{$haserror},$runlogid)");
-    // echo "<pre>";
-    // echo var_dump($insert);
-    // echo "</pre>";
+    // echo "<pre>";echo var_dump($insert);echo "</pre>";
 
     $logid = $db->lastInsertID();
 
@@ -362,9 +417,7 @@ function gettoken($db)
         }
 
         $insert = $db->query("INSERT INTO api_log (url,request,response,haserror) VALUES ('{$url}','" . addslashes(str_replace('QVBJLUJDN0Q1NkM1OjNjYWQwNDU0NDkxNzkwMjY2ZWQ2MmJkMDk0MzQxM2NjYmJiODc0OTRhZTEyYmQzNjE1ZjZlMWY4N2Q1NWFmMGU=', 'APIPASSWORDHIDDEN', $curlrequeststr)) . "','" . addslashes($curlresponsestr) . "',{$haserror})");
-        // echo "<pre>";
-        // echo var_dump($insert);
-        // echo "</pre>";
+        // echo "<pre>";echo var_dump($insert);echo "</pre>";
 
         if (!is_null($data) && !isset($data['error'])) {
             $insert = $db->query("INSERT INTO tokens (token) VALUES ('{$data['access_token']}')");
