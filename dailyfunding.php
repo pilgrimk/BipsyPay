@@ -92,6 +92,8 @@ function run_merchants($db)
         $ballogid = 0;
         $fundlogid = 0;
         $balafterlogid = 0;
+        $hold_rate_dollars = 0;
+        $chargeback_rate_dollars = 0;
 
         list($merchant_acct_balance, $ballogid) = get_hold_balance($db, $merchant['mid'], $runlogid);
 
@@ -127,8 +129,8 @@ function run_merchants($db)
 
                 $fund_amounts = build_fund_amounts( $merchant_dollars, 
                                                     $disc_rate_dollars, 
-                                                    $disc_rate_dollars, 
-                                                    $disc_rate_dollars,
+                                                    $hold_rate_dollars, 
+                                                    $chargeback_rate_dollars,
                                                     $merchant['recon_type']);                                      
 
                 // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']} {$merchant['location_name']}<br>";
@@ -283,7 +285,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $hold_rate_do
     if ($merchant_dollars > 0) {
         $amounts[$REVENUE_ACCOUNT] = $merchant_dollars;
     }
-    if ($disc_rate_dollars > 0) {
+    if (($recon_type == 0) &&($disc_rate_dollars > 0)) {
         $amounts[$FEE_ACCOUNT] = $disc_rate_dollars;
     }
     if ($hold_rate_dollars > 0) {
@@ -293,7 +295,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $hold_rate_do
         $amounts[$CHARGEBACK_ACCOUNT] = $chargeback_rate_dollars;
     }
 
-    echo "<pre>";echo var_dump($amounts);echo "</pre>";
+    // echo "<pre>";echo var_dump($amounts);echo "</pre>";
     return $amounts;   
 }
 
@@ -318,7 +320,7 @@ function build_funding_accounts($fund_amounts)
         $accounts[] = array('account_type' => $CHARGEBACK_ACCOUNT, 'amount' => $fund_amounts[$CHARGEBACK_ACCOUNT]);
     }
 
-    echo "<pre>";echo var_dump($accounts);echo "</pre>";
+    // echo "<pre>";echo var_dump($accounts);echo "</pre>";
     return $accounts;
 }
 
