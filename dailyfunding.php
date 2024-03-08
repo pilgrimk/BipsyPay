@@ -7,14 +7,8 @@ $apiurl = "https://api.carat-platforms.fiserv.com/";
 $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
 // $next_day_funding = false;
- $next_day_funding = (isset($_REQUEST['NDF']) && $_REQUEST['NDF'] == 1);
-$runfunding = false;                // set this to TRUE when ready to actually FUND !!
-
-if (isset($_REQUEST['testingenv'])) {
-    $apiurl = "https://uat-fd-pfac-c-api.technologi.co.uk/";
-    $apiusername = 'USER_NAME';
-    $apipassword = 'PASSWORD';
-}
+$next_day_funding = (isset($_REQUEST['NDF']) && $_REQUEST['NDF'] == 1);
+$runfunding = false;                // set this to TRUE only when ready to actually FUND !!
 
 $dbhost = 'localhost';
 $dbuser = 'USER_NAME';
@@ -92,17 +86,23 @@ function run_merchants($db)
         $ballogid = 0;
         $fundlogid = 0;
         $balafterlogid = 0;
+        $merchant_mid = $merchant['mid'];
         $hold_rate_dollars = 0;
-        $chargeback_rate_dollars = 0;
+        $chargeback_amount = 0;
 
-        list($merchant_acct_balance, $ballogid) = get_hold_balance($db, $merchant['mid'], $runlogid);
+        // Testing ******************************
+        // if ($merchant_mid == '526269716886') {
+        //     $merchant_mid = '526329075885';
+        // }
+
+        list($merchant_acct_balance, $ballogid) = get_account_balance($db, $merchant_mid, $runlogid);
 
         if ($merchant_acct_balance == 'error') {
             $merchant_acct_balance = '0';
         }
 
         if ($merchant_acct_balance != 'error') {
-            // echo "Merchant: {$merchant['mid']} - {$merchant['merchant_name']}, merchant_acct_balance: {$merchant_acct_balance} <br>";
+            echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, merchant_acct_balance: {$merchant_acct_balance} <br>";
 
             if ($merchant_acct_balance > 0) {
                 $runcount++;
@@ -111,29 +111,26 @@ function run_merchants($db)
                     $merchant_acct_balance = round($merchant_acct_balance / 600, 2);
                 }
 
-                if ($merchant['recon_type'] == 1) {
-                    // do NOT apply surcharge, 
-                    $merchant_dollars = $merchant_acct_balance;
-                    $disc_rate_dollars = 0;
-                } elseif ($merchant['surcharge'] == 0) {
-                    // do NOT apply surcharge, apply flat rate
-                    $merchant_dollars = round(($merchant_acct_balance  -  ($merchant_acct_balance  * $merchant['disc_rate'])), 2);
-                    // calculate the flat rate
-                    $disc_rate_dollars = round(($merchant_acct_balance * $merchant['disc_rate']), 2);
-                } else {
-                    // apply surcharge; this follows original functionality
-                    $merchant_dollars = round(($merchant_acct_balance  / (1 + $merchant['disc_rate'])), 2);
-                    // divide by DISCOUNT_RATE
-                    $disc_rate_dollars = round($merchant_acct_balance - ($merchant_acct_balance  / (1 + $merchant['disc_rate'])), 2);
-                }
+                list($chargeback_amount, $chargeback_today_in) = get_chargeback_balance($db, $merchant_mid, $runlogid);
 
-                $fund_amounts = build_fund_amounts( $merchant_dollars, 
-                                                    $disc_rate_dollars, 
-                                                    $hold_rate_dollars, 
-                                                    $chargeback_rate_dollars,
-                                                    $merchant['recon_type']);                                      
+                list($merchant_dollars, $disc_rate_dollars, $hold_rate_dollars, $chargeback_amount) = calculate_funding_amounts(
+                    $merchant_acct_balance,
+                    $merchant['disc_rate'],
+                    $merchant['surcharge'],
+                    $merchant['recon_type'],
+                    $chargeback_amount,
+                    $chargeback_today_in
+                );
 
-                // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']} {$merchant['location_name']}<br>";
+                $fund_amounts = build_fund_amounts(
+                    $merchant_dollars,
+                    $disc_rate_dollars,
+                    $hold_rate_dollars,
+                    $chargeback_amount,
+                    $merchant['recon_type']
+                );
+
+                // echo "Merchant - {$merchant_mid} {$merchant['merchant_name']} {$merchant['location_name']}<br>";
                 // echo "Reconcile Type - {$merchant['recon_type']}, Surcharge - {$merchant['surcharge']}, Next Day Funding - {$merchant['next_day_funding']}<br>";
                 // echo "Acct Bal - $merchant_acct_balance <br>";
                 // echo "Dics Rate - " . $merchant['disc_rate'] . "<br>";
@@ -143,15 +140,11 @@ function run_merchants($db)
 
                 if ($runfunding && (!is_null($fund_amounts))) {
                     // echo "running funding... <br>";
-
-                    if ($merchant['mid'] == '140920210021') {
-                        $merchant['mid'] = '1234';
-                    }
-                    list($fundingres, $fundlogid) = funding($db, $merchant_acct_balance, $fund_amounts, $merchant['mid'], $runlogid);
+                    list($fundingres, $fundlogid) = do_funding($db, $merchant_acct_balance, $fund_amounts, $merchant_mid, $runlogid);
                     $fundcount++;
                 }
 
-                list($merchant_acct_balance_after, $balafterlogid) = get_hold_balance($db, $merchant['mid'], $runlogid);
+                list($merchant_acct_balance_after, $balafterlogid) = get_account_balance($db, $merchant_mid, $runlogid);
 
                 if ($merchant_acct_balance_after == 'error') {
                     $merchant_acct_balance_after = $merchant_acct_balance;
@@ -163,7 +156,7 @@ function run_merchants($db)
                     echo "<pre>";echo var_dump($errorres);echo "</pre>";
                 }
 
-                $logsql = "INSERT INTO fund_log (mid, fund_date, receipts, deposits, fees,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant['mid']}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
+                $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,holds,chargebacks,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$hold_rate_dollars,$chargeback_amount,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
                 // echo $logsql . "<br>";
 
                 $insert = $db->query($logsql);
@@ -172,7 +165,7 @@ function run_merchants($db)
                 $finallogid = $db->lastInsertID();
 
                 if ($fundlogid > 0) {
-                    $procsql = "UPDATE merchants set processed = '" . date('Y-m-d H:i:s') . "' where mid = {$merchant['mid']}";
+                    $procsql = "UPDATE merchants set processed = '" . date('Y-m-d H:i:s') . "' where mid = {$merchant_mid}";
                     $db->query($procsql);
                 }
             }
@@ -186,52 +179,16 @@ function run_merchants($db)
     $db->query($inssql);
 }
 
-function make_curl_call($verbose, $url, $request, $postfields, $authorization)
-{
-    $curlcertpath = "C:\Program Files\php-8.3.2\certificates\cacert.pem";
-
-    // initialize and set up the CURL API call
-    $ch = curl_init();
-    curl_setopt_array($ch, array(
-        CURLOPT_VERBOSE => $verbose,
-        CURLOPT_URL => $url,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_ENCODING => '',
-        CURLOPT_MAXREDIRS => 10,
-        CURLOPT_TIMEOUT => 0,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        // CURLOPT_CAINFO => $curlcertpath,
-        CURLOPT_CUSTOMREQUEST => $request,
-        CURLOPT_POSTFIELDS => $postfields,
-        CURLOPT_HTTPHEADER => array(
-            'Content-Type: application/json',
-            'Accept-Language: en;q=0.8,es-cl;q=0.5,zh-cn;q=0.3',
-            $authorization,
-        ),
-    ));
-
-    $server_response = curl_exec($ch);
-    curl_close($ch);
-
-    if ($e = curl_error($ch)) {
-        echo $e;
-        return null;
-    } else {
-        // echo "<pre>";echo var_dump($server_response);echo "</pre>";
-        return $server_response;
-    };
-}
-
-function funding(   $db, 
-                    $merchant_acct_balance, 
-                    $funding_amounts, 
-                    $merchant_id, 
-                    $runlogid)
-{
+function do_funding(
+    $db,
+    $merchant_acct_balance,
+    $funding_amounts,
+    $merchant_id,
+    $runlogid
+) {
     global $access_token;
     $accounts_array = null;
-    $apires = null; 
+    $apires = null;
     $logid = 0;
 
     $accounts_array = build_funding_accounts($funding_amounts);
@@ -255,7 +212,7 @@ function funding(   $db,
     }
 }
 
-function get_hold_balance($db, $merchant_id, $runlogid)
+function get_account_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
     $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT");
@@ -274,7 +231,61 @@ function get_hold_balance($db, $merchant_id, $runlogid)
     }
 }
 
-function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $hold_rate_dollars, $chargeback_rate_dollars, $recon_type)
+function get_chargeback_balance($db, $merchant_id, $runlogid)
+{
+    global $access_token;
+    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "CHARGEBACK_ACCOUNT");
+    list($apires, $logid) = api_call($db, 'account/balance', $postarr, $access_token, $runlogid);
+
+    if (is_null($apires)) {
+        $data = null;
+    } else {
+        $data = json_decode($apires, TRUE);
+    }
+
+    if (is_null($data) || isset($data['error'])) {
+        return [0,0];
+    } else {
+        return array($data['account']['balance'], $data['account']['today_in']);
+    }
+}
+
+function calculate_funding_amounts(
+    $merchant_acct_balance,
+    $disc_rate,
+    $surcharge,
+    $recon_type,
+    $chargeback_amount,
+    $chargeback_today_in)
+{
+    $merchant_dollars = 0;
+    $disc_rate_dollars = 0;
+    $hold_rate_dollars = 0;
+    $chargeback_amount_adj = $chargeback_amount;
+
+    if ($recon_type == 1) {
+        // do NOT apply surcharge, 
+        $merchant_dollars = $merchant_acct_balance;
+        $disc_rate_dollars = 0;
+    } elseif ($surcharge == 0) {
+        // do NOT apply surcharge, apply flat rate
+        $merchant_dollars = round(($merchant_acct_balance  -  ($merchant_acct_balance  * $disc_rate)), 2);
+        // calculate the flat rate
+        $disc_rate_dollars = round(($merchant_acct_balance * $disc_rate), 2);
+    } else {
+        // apply surcharge; this follows original functionality
+        $merchant_dollars = round(($merchant_acct_balance  / (1 + $disc_rate)), 2);
+        // divide by DISCOUNT_RATE
+        $disc_rate_dollars = round($merchant_acct_balance - ($merchant_acct_balance  / (1 + $disc_rate)), 2);
+    }
+
+    $result = array($merchant_dollars, $disc_rate_dollars, $hold_rate_dollars, $chargeback_amount_adj);
+
+    // echo "<pre>";echo var_dump($result);echo "</pre>";
+    return $result;
+}
+
+function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $hold_rate_dollars, $chargeback_amount, $recon_type)
 {
     global $REVENUE_ACCOUNT;
     global $FEE_ACCOUNT;
@@ -285,18 +296,18 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $hold_rate_do
     if ($merchant_dollars > 0) {
         $amounts[$REVENUE_ACCOUNT] = $merchant_dollars;
     }
-    if (($recon_type == 0) &&($disc_rate_dollars > 0)) {
+    if (($recon_type == 0) && ($disc_rate_dollars > 0)) {
         $amounts[$FEE_ACCOUNT] = $disc_rate_dollars;
     }
     if ($hold_rate_dollars > 0) {
         $amounts[$HOLD_ACCOUNT] = $hold_rate_dollars;
     }
-    if ($chargeback_rate_dollars > 0) {
-        $amounts[$CHARGEBACK_ACCOUNT] = $chargeback_rate_dollars;
+    if ($chargeback_amount > 0) {
+        $amounts[$CHARGEBACK_ACCOUNT] = $chargeback_amount;
     }
 
     // echo "<pre>";echo var_dump($amounts);echo "</pre>";
-    return $amounts;   
+    return $amounts;
 }
 
 function build_funding_accounts($fund_amounts)
@@ -477,6 +488,43 @@ function test_api_call($token)
         $data = json_decode($response, TRUE);
         return ($data['result'] == 'SUCCESS');
     }
+}
+
+function make_curl_call($verbose, $url, $request, $postfields, $authorization)
+{
+    $curlcertpath = "C:\Program Files\php-8.3.2\certificates\cacert.pem";
+
+    // initialize and set up the CURL API call
+    $ch = curl_init();
+    curl_setopt_array($ch, array(
+        CURLOPT_VERBOSE => $verbose,
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => '',
+        CURLOPT_MAXREDIRS => 10,
+        CURLOPT_TIMEOUT => 0,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CAINFO => $curlcertpath,
+        CURLOPT_CUSTOMREQUEST => $request,
+        CURLOPT_POSTFIELDS => $postfields,
+        CURLOPT_HTTPHEADER => array(
+            'Content-Type: application/json',
+            'Accept-Language: en;q=0.8,es-cl;q=0.5,zh-cn;q=0.3',
+            $authorization,
+        ),
+    ));
+
+    $server_response = curl_exec($ch);
+    curl_close($ch);
+
+    if ($e = curl_error($ch)) {
+        echo $e;
+        return null;
+    } else {
+        // echo "<pre>";echo var_dump($server_response);echo "</pre>";
+        return $server_response;
+    };
 }
 
 class db
