@@ -49,6 +49,7 @@ $REVENUE_ACCOUNT = 'REVENUE_ACCOUNT';
 $FEE_ACCOUNT = 'FEE_ACCOUNT';
 $HOLD_ACCOUNT = 'HOLD_ACCOUNT';
 $CHARGEBACK_ACCOUNT = 'CHARGEBACK_ACCOUNT';
+$CHARGEBACK_FEE_AMOUNT = 25.00;
 
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
 $access_token = gettoken($db);
@@ -319,6 +320,7 @@ function calculate_funding_amounts(
     $reserve_balance,
     $chargeback_amount
 ) {
+    global $CHARGEBACK_FEE_AMOUNT; 
     $merchant_dollars = $merchant_acct_balance;
     $disc_rate_dollars = 0;
     $reserve_rate_dollars = 0;
@@ -363,6 +365,10 @@ function calculate_funding_amounts(
 
     // CHARGEBACK is a big hammer, applied even if the dollar amount goes negative !!
     if ($chargeback_amount > 0) {
+        // first apply CHARGEBACK fees
+        $disc_rate_dollars = round(($disc_rate_dollars + $CHARGEBACK_FEE_AMOUNT), 2);
+        $merchant_dollars = round(($merchant_dollars - $CHARGEBACK_FEE_AMOUNT), 2);
+
         $merchant_dollars = round(($merchant_dollars - $chargeback_amount), 2);
     }
 
@@ -592,7 +598,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         CURLOPT_TIMEOUT => 0,
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-        CURLOPT_CAINFO => $curlcertpath,
+        // CURLOPT_CAINFO => $curlcertpath,
         CURLOPT_CUSTOMREQUEST => $request,
         CURLOPT_POSTFIELDS => $postfields,
         CURLOPT_HTTPHEADER => array(
