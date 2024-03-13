@@ -2,13 +2,36 @@
 // BEGIN MAIN PHP script ---------------------------------------------
 echo "Running kevinTest... <br>";
 
-// GLOBAl variable declarations
+// Check if the script is being run from the command line (CLI)
+if (php_sapi_name() === 'cli') {
+    // Check if command-line arguments are provided
+    if (isset($argv[1])) {
+        parse_str($argv[1], $arg);
+        // Now $arg contains the parsed arguments
+        // var_dump($arg);
+    } else {
+        "No command line parameters found. <br>";
+    }
+} else {
+    // If not running from the command line, assume it's a web request
+    // Parse query string parameters
+    $query = parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
+    if ($query) {
+        parse_str($query, $arg);
+        // Now $arg contains the parsed query string parameters
+        // var_dump($arg);
+    } else {
+        echo "No query string parameters found. <br>";
+    }
+}
+
+// GLOBAL variable declarations
 $apiurl = "https://api.carat-platforms.fiserv.com/";
 $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
 
-$next_day_funding = (isset($_REQUEST['NDF']) && $_REQUEST['NDF'] == 1);
-$runfunding = false;                // set this to TRUE when ready to actually FUND !!
+// set these variables based upon passed arguments
+$next_day_funding = (isset($arg['NDF']) && $arg['NDF'] == '1');
 
 $dbhost = 'localhost';
 $dbuser = 'USER_NAME';
@@ -69,9 +92,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         echo $e;
         return null;
     } else {
-        // echo "<prev>";
-        // print_r($server_response);
-        // echo "</prev>";
+        // echo "<pre>";echo var_dump($server_response);echo "</pre>";
         return $server_response;
     };
 }

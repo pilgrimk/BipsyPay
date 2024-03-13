@@ -2,18 +2,47 @@
 // BEGIN MAIN PHP script ---------------------------------------------
 echo "Running dailyfunding... <br>";
 
-// GLOBAl variable declarations
+// Check if the script is being run from the command line (CLI)
+if (php_sapi_name() === 'cli') {
+    // Check if command-line arguments are provided
+    if (isset($argv[1])) {
+        parse_str($argv[1], $arg);
+        // Now $arg contains the parsed arguments
+        // var_dump($arg);
+    } else {
+        "No command line parameters found. <br>";
+    }
+} else {
+    // If not running from the command line, assume it's a web request
+    // Parse query string parameters
+    $query = parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
+    if ($query) {
+        parse_str($query, $arg);
+        // Now $arg contains the parsed query string parameters
+        // var_dump($arg);
+    } else {
+        echo "No query string parameters found. <br>";
+    }
+}
+
+// GLOBAL variable declarations
 $apiurl = "https://api.carat-platforms.fiserv.com/";
 $apiusername = 'USER_NAME';
 $apipassword = 'PASSWORD';
-// $next_day_funding = false;
-$next_day_funding = (isset($_REQUEST['NDF']) && $_REQUEST['NDF'] == 1);
-$runfunding = false;                // set this to TRUE only when ready to actually FUND !!
 
 $dbhost = 'localhost';
 $dbuser = 'USER_NAME';
 $dbpass = 'PASSWORD';
 $dbname = 'dbarney_webtools';
+
+// set these variables based upon passed arguments
+$next_day_funding = (isset($arg['NDF']) && $arg['NDF'] == '1');
+$runfunding = (isset($arg['FUND']) && $arg['FUND'] == '1');
+
+// Testing ******************************
+// $next_day_funding = false; 
+// $runfunding = false;            // set this to TRUE only when ready to actually FUND !!
+// **************************************
 
 // account types
 $REVENUE_ACCOUNT = 'REVENUE_ACCOUNT';
@@ -100,20 +129,25 @@ function run_merchants($db)
         $chargeback_amount = get_chargeback_balance($db, $merchant_mid, $runlogid);
 
         // Testing ******************************
-        if ($merchant_mid == '526269716886') {
-            $merchant_acct_balance = 1000;
-            $chargeback_amount = 400;
-        }
+        // if ($merchant_mid == '526269716886') {
+        //     $merchant_acct_balance = 1000;
+        //     $chargeback_amount = 400;
+        // }
 
         if ($merchant_acct_balance != 'error') {
-            echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, merchant_acct_balance: {$merchant_acct_balance}, chargeback amount: {$chargeback_amount} <br>";
+            if ($merchant['reserve_rate'] > 0) {
+                $reserve_balance = get_reserve_balance($db, $merchant_mid, $runlogid);
+
+                // Testing ******************************
+                // if ($merchant_mid == '526269716886') {
+                //     $reserve_balance = 700;
+                // }
+            }
+
+            echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, resv cap: {$merchant['reserve_cap']}, chargeback amount: {$chargeback_amount} <br>";
 
             if ($merchant_acct_balance > 0) {
                 $runcount++;
-
-                if ($merchant['reserve_rate'] > 0) {
-                    $reserve_balance = get_reserve_balance($db, $merchant_mid, $runlogid);
-                }
 
                 list($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount) = calculate_funding_amounts(
                     $merchant_acct_balance,
@@ -157,10 +191,10 @@ function run_merchants($db)
                 $errorres = $db->query("SELECT count(*) as errorcount from api_log where id in ($ballogid,$fundlogid,$balafterlogid) and haserror = 1")->fetchAll();
                 $errorcount = $errorres[0]['errorcount'];
                 if ($errorcount > 0) {
-                    echo "<pre>";echo var_dump($errorres);echo "</pre>";
+                    echo "Count API_LOG errors logged: {$errorcount} for ballogid: {$ballogid}, fundlogid: {$fundlogid}, balafterlogid: {$balafterlogid} <br>";
                 }
 
-                $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,holds,chargebacks,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$reserve_rate_dollars,$chargeback_amount,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
+                $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,reserves,chargebacks,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$reserve_rate_dollars,$chargeback_amount,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
                 // echo $logsql . "<br>";
 
                 $insert = $db->query($logsql);
@@ -329,8 +363,7 @@ function calculate_funding_amounts(
 
     // CHARGEBACK is a big hammer, applied even if the dollar amount goes negative !!
     if ($chargeback_amount > 0) {
-        $chargeback_amount = $chargeback_amount * (-1);
-        $merchant_dollars = round(($merchant_dollars + $chargeback_amount), 2);
+        $merchant_dollars = round(($merchant_dollars - $chargeback_amount), 2);
     }
 
     $result = array($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount);
@@ -353,7 +386,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate
     if (($recon_type == 0) && ($disc_rate_dollars > 0)) {
         $amounts[$FEE_ACCOUNT] = $disc_rate_dollars;
     }
-    if ($reserve_rate_dollars > 0) {
+    if ($reserve_rate_dollars != 0) {
         $amounts[$HOLD_ACCOUNT] = $reserve_rate_dollars;
     }
     if ($chargeback_amount != 0) {
@@ -565,6 +598,7 @@ function make_curl_call($verbose, $url, $request, $postfields, $authorization)
         CURLOPT_HTTPHEADER => array(
             'Content-Type: application/json',
             'Accept-Language: en;q=0.8,es-cl;q=0.5,zh-cn;q=0.3',
+            'X-API-VERSION: 3',
             $authorization,
         ),
     ));
