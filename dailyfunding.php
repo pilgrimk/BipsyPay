@@ -38,10 +38,12 @@ $dbname = 'dbarney_webtools';
 // set these variables based upon passed arguments
 $next_day_funding = (isset($arg['NDF']) && $arg['NDF'] == '1');
 $runfunding = (isset($arg['FUND']) && $arg['FUND'] == '1');
+$testingenv = (isset($arg['TEST']) && $arg['TEST'] == '1');
 
 // Testing ******************************
 // $next_day_funding = false; 
 // $runfunding = false;            // set this to TRUE only when ready to actually FUND !!
+// $testingenv = true;
 // **************************************
 
 // account types
@@ -66,9 +68,10 @@ function run_merchants($db)
 {
     global $next_day_funding;
     global $runfunding;
+    global $testingenv;
 
     $starttime = date('Y-m-d H:i:s');
-    if (isset($_REQUEST['testingenv'])) {
+    if ($testingenv) {
         $runtype = "testenv";
         if ($runfunding) {
             $runtype = "testenvfund";
@@ -129,20 +132,9 @@ function run_merchants($db)
 
         $chargeback_amount = get_chargeback_balance($db, $merchant_mid, $runlogid);
 
-        // Testing ******************************
-        // if ($merchant_mid == '526269716886') {
-        //     $merchant_acct_balance = 1000;
-        //     $chargeback_amount = 400;
-        // }
-
         if ($merchant_acct_balance != 'error') {
             if ($merchant['reserve_rate'] > 0) {
                 $reserve_balance = get_reserve_balance($db, $merchant_mid, $runlogid);
-
-                // Testing ******************************
-                // if ($merchant_mid == '526269716886') {
-                //     $reserve_balance = 700;
-                // }
             }
 
             echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, resv cap: {$merchant['reserve_cap']}, chargeback amount: {$chargeback_amount} <br>";
@@ -349,17 +341,18 @@ function calculate_funding_amounts(
         // divide by RESERVE_RATE
         $reserve_rate_dollars = round(($merchant_acct_balance * $reserve_rate), 2);
 
-        // if there's a current RESERVE_BALANCE make sure we account for the amount
-        if ($reserve_balance > 0) {
+        // if there's a current RESERVE_CAP we have to work within that limit
+        if ($reserve_cap > 0) {
             if ($reserve_balance >= $reserve_cap) {
                 // we've met the reserve cap
                 $reserve_rate_dollars = 0;
-            } elseif ($reserve_rate_dollars > ($reserve_cap - $reserve_balance)) {
-                $reserve_rate_dollars = $reserve_cap - $reserve_balance;
+            } elseif (($reserve_cap - $reserve_balance) <=  $reserve_rate_dollars) {
+                // if there's a current RESERVE_BALANCE make sure we account for the amount
+                $reserve_rate_dollars = round(($reserve_cap - $reserve_balance), 2);
             }
         }
 
-        // apply the reserve rate to the running balance
+        // finally apply the calculated reserve rate amount to the running balance
         $merchant_dollars = round(($merchant_dollars - $reserve_rate_dollars), 2);
     }
 
