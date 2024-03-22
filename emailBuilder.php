@@ -45,6 +45,11 @@ $fundingdetailsql = "SELECT
 	fund_log.receipts as \"Starting Balance\", 
 	fund_log.deposits as \"Deposit\", 
 	fund_log.fees as \"Fee\", 
+	fund_log.chargebacks as \"Chargebacks\", 
+	CASE 
+		WHEN fund_log.chargebacks IS NULL THEN \"$0.00\"
+		ELSE fund_log.chargebacks
+	END \"Chargebacks\", 	
 	fund_log.endbal as \"Ending Balance\"
 FROM
 	fund_log
