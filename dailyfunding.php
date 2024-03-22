@@ -50,6 +50,8 @@ $testingenv = (isset($arg['TEST']) && $arg['TEST'] == '1');
 $REVENUE_ACCOUNT = 'REVENUE_ACCOUNT';
 $FEE_ACCOUNT = 'FEE_ACCOUNT';
 $HOLD_ACCOUNT = 'HOLD_ACCOUNT';
+$RESERVE_ACCOUNT = 'RESERVE_ACCOUNT';
+$INSTRUCTIONAL_HOLD_ACCOUNT = 'INSTRUCTIONAL_HOLD_ACCOUNT';
 $CHARGEBACK_ACCOUNT = 'CHARGEBACK_ACCOUNT';
 $CHARGEBACK_FEE_AMOUNT = 25.00;
 
@@ -171,7 +173,7 @@ function run_merchants($db)
                 // echo "Log ID - {$ballogid} <br>";
 
                 if ($runfunding && (!is_null($fund_amounts))) {
-                    list($fundingres, $fundlogid) = do_funding($db, $merchant_acct_balance, $fund_amounts, $merchant_mid, $runlogid);
+                    list($fundingres, $fundlogid) = do_funding($db, $fund_amounts, $merchant_mid, $runlogid);
                     $fundcount++;
                 }
 
@@ -212,7 +214,6 @@ function run_merchants($db)
 
 function do_funding(
     $db,
-    $merchant_acct_balance,
     $funding_amounts,
     $merchant_id,
     $runlogid
@@ -224,7 +225,8 @@ function do_funding(
 
     $accounts_array = build_funding_accounts($funding_amounts);
     if (!is_null($accounts_array)) {
-        $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', 'total_amount' => $merchant_acct_balance, "accounts" => $accounts_array);
+        $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "funding" => $accounts_array);
+        // echo "<pre>";echo var_dump($postarr);echo "</pre>";
         list($apires, $logid) = api_call($db, 'funding/instruction', $postarr, $access_token, $runlogid);
     }
 
@@ -232,21 +234,61 @@ function do_funding(
         $data = null;
     } else {
         $data = json_decode($apires, TRUE);
+        // echo "<pre>";echo var_dump($data);echo "</pre>";
     }
 
     if (is_null($data)) {
         return array('error', $logid);
     } elseif (isset($data['error'])) {
+        // THIS code for testing purposes only !!
+        // $test_accounts = array( "accounts" =>    array( array("account_type" => "FEE_ACCOUNT", "balance" => "143.22"),
+        //                                                 array("account_type" => "REVENUE_ACCOUNT", "balance" => "2541.16"),
+        //                                                 array("account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT", "balance" => "20.00")),
+        //                         "instruction_tracker" => "");
+        // $test_data = array( "result" => "SUCCESS", "summary" => $test_accounts); 
+        // $balance = parse_account_balance($test_data);                       
+        // return array($balance, $logid);
+
+        // THIS is the code we want in place !!
         return array('error', $logid);
+    }  elseif (isset($data['summary']['accounts'])) {
+        // updated for V3 response processing
+        $balance = parse_account_balance($data); 
+        return array($balance, $logid);
     } else {
-        return array($data['account']['balance'], $logid);
+        return array('error', $logid);
     }
+}
+
+function parse_account_balance($data)
+{
+    global $INSTRUCTIONAL_HOLD_ACCOUNT;
+    $count = 0;
+    $result = "0";
+    $found = false;
+    $accounts = $data['summary']['accounts'];
+    // echo "<pre>";echo var_dump($data);echo "</pre>";
+
+    while($count < count($accounts))
+    {
+        $account = $accounts[$count];
+        if (!($found) && ($account['account_type'] == $INSTRUCTIONAL_HOLD_ACCOUNT)) {
+            $result = $account['balance'];
+            $found = true;
+        }
+        $count++;
+    }
+
+    // echo "parse_account_balance, balance: {$result} <br>";
+    return $result;
 }
 
 function get_account_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
-    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "INSTRUCTIONAL_HOLD_ACCOUNT");
+    global $INSTRUCTIONAL_HOLD_ACCOUNT; 
+
+    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => $INSTRUCTIONAL_HOLD_ACCOUNT);
     list($apires, $logid) = api_call($db, 'account/balance', $postarr, $access_token, $runlogid);
 
     if (is_null($apires)) {
@@ -265,7 +307,9 @@ function get_account_balance($db, $merchant_id, $runlogid)
 function get_chargeback_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
-    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "CHARGEBACK_ACCOUNT");
+    global $CHARGEBACK_ACCOUNT;
+
+    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => $CHARGEBACK_ACCOUNT);
     list($apires, $logid) = api_call($db, 'account/balance', $postarr, $access_token, $runlogid);
 
     if (is_null($apires)) {
@@ -285,7 +329,9 @@ function get_chargeback_balance($db, $merchant_id, $runlogid)
 function get_reserve_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
-    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => "HOLD_ACCOUNT");
+    global $RESERVE_ACCOUNT;
+
+    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => $RESERVE_ACCOUNT);
     list($apires, $logid) = api_call($db, 'account/balance', $postarr, $access_token, $runlogid);
 
     if (is_null($apires)) {
@@ -375,7 +421,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate
 {
     global $REVENUE_ACCOUNT;
     global $FEE_ACCOUNT;
-    global $HOLD_ACCOUNT;
+    global $RESERVE_ACCOUNT;
     global $CHARGEBACK_ACCOUNT;
     $amounts = [];
 
@@ -386,7 +432,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate
         $amounts[$FEE_ACCOUNT] = $disc_rate_dollars;
     }
     if ($reserve_rate_dollars != 0) {
-        $amounts[$HOLD_ACCOUNT] = $reserve_rate_dollars;
+        $amounts[$RESERVE_ACCOUNT] = $reserve_rate_dollars;
     }
     if ($chargeback_amount != 0) {
         $amounts[$CHARGEBACK_ACCOUNT] = $chargeback_amount;
@@ -400,21 +446,21 @@ function build_funding_accounts($fund_amounts)
 {
     global $REVENUE_ACCOUNT;
     global $FEE_ACCOUNT;
-    global $HOLD_ACCOUNT;
+    global $RESERVE_ACCOUNT;
     global $CHARGEBACK_ACCOUNT;
     $accounts = [];
 
     if (isset($fund_amounts[$REVENUE_ACCOUNT])) {
-        $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT]);
+        $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT], 'type' => 'CREDIT');
     }
     if (isset($fund_amounts[$FEE_ACCOUNT])) {
-        $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT]);
+        $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT], 'type' => 'CREDIT');
     }
-    if (isset($fund_amounts[$HOLD_ACCOUNT])) {
-        $accounts[] = array('account_type' => $HOLD_ACCOUNT, 'amount' => $fund_amounts[$HOLD_ACCOUNT]);
+    if (isset($fund_amounts[$RESERVE_ACCOUNT])) {
+        $accounts[] = array('account_type' => $RESERVE_ACCOUNT, 'amount' => $fund_amounts[$RESERVE_ACCOUNT], 'type' => 'CREDIT');
     }
     if (isset($fund_amounts[$CHARGEBACK_ACCOUNT])) {
-        $accounts[] = array('account_type' => $CHARGEBACK_ACCOUNT, 'amount' => $fund_amounts[$CHARGEBACK_ACCOUNT]);
+        $accounts[] = array('account_type' => $CHARGEBACK_ACCOUNT, 'amount' => $fund_amounts[$CHARGEBACK_ACCOUNT], 'type' => 'CREDIT');
     }
 
     // echo "<pre>";echo var_dump($accounts);echo "</pre>";
