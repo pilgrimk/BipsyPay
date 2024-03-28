@@ -47,7 +47,7 @@ $fundingdetailsql = "SELECT
 	fund_log.fees as \"Fee\", 
 	fund_log.chargebacks as \"Chargebacks\", 
 	CASE 
-		WHEN fund_log.chargebacks IS NULL THEN \"$0.00\"
+		WHEN fund_log.chargebacks IS NULL THEN \"0.00\"
 		ELSE fund_log.chargebacks
 	END \"Chargebacks\", 	
 	fund_log.endbal as \"Ending Balance\"
@@ -77,7 +77,7 @@ $errordetsql = "select datelogged as \"When\",replace(url,'https://fd-pfac-api.t
 //echo $errordetsql;
 
 #Summary	Funding
-$summaryfundsql = "select count(DISTINCT fund_log.mid) as \"MIDS\",sum(fund_log.receipts) as \"Gross\",sum(fund_log.deposits) as \"Deposit\", sum(fund_log.fees) as \"Fees\" FROM
+$summaryfundsql = "select count(DISTINCT fund_log.mid) as \"MIDS\",sum(fund_log.receipts) as \"Gross\",sum(fund_log.deposits) as \"Deposit\", sum(fund_log.fees) as \"Fees\", sum(fund_log.chargebacks) as \"Chargebacks\" FROM
 	fund_log
 	INNER JOIN
 	merchants
@@ -190,7 +190,7 @@ if (isset($_REQUEST['skipemail'])) {
 
 function gettableforemail($res, $resheader, $cssclass = 'paleBlueRows')
 {
-  $dollarfieldsarr = array('Gross', 'Starting Balance', 'Deposit', 'Fee', 'Fees', 'Ending Balance');
+  $dollarfieldsarr = array('Gross', 'Starting Balance', 'Deposit', 'Fee', 'Fees', 'Ending Balance', 'Chargebacks');
 
   if (count($res) == 0 || $res[0]['MIDS'] == '0') {
     return "";
