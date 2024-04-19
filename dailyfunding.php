@@ -6,9 +6,9 @@ echo "Running dailyfunding... <br>";
 if (php_sapi_name() === 'cli') {
     // Check if command-line arguments are provided
     if (isset($argv[1])) {
-        parse_str($argv[1], $arg);
-        // Now $arg contains the parsed arguments
-        // var_dump($arg);
+        // $argv contains the parsed arguments
+        // var_dump($argv);
+        $my_arguments = $argv;
     } else {
         "No command line parameters found. <br>";
     }
@@ -17,13 +17,27 @@ if (php_sapi_name() === 'cli') {
     // Parse query string parameters
     $query = parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
     if ($query) {
-        parse_str($query, $arg);
-        // Now $arg contains the parsed query string parameters
-        // var_dump($arg);
+        // $query contains the parsed query string parameters
+        // var_dump($query);
+        $my_arguments = $query;
     } else {
         echo "No query string parameters found. <br>";
     }
 }
+
+// set these variables based upon passed arguments
+$next_day_funding = (my_arg_parser($my_arguments, 'NDF') == '1');
+$runfunding = (my_arg_parser($my_arguments, 'FUND') == '1');
+$testingenv = (my_arg_parser($my_arguments, 'TEST') == '1');  
+
+// Testing ******************************
+// $next_day_funding = false; 
+// $runfunding = false;            // set this to TRUE only when ready to actually FUND !!
+// $testingenv = true;
+// ************************************** 
+
+// var_dump($my_arguments);
+// echo "next_day_funding: {$next_day_funding}, runfunding: {$runfunding}, testingenv:{$testingenv}" . "<br>";
 
 // GLOBAL variable declarations
 $apiurl = "https://api.carat-platforms.fiserv.com/";
@@ -34,17 +48,6 @@ $dbhost = 'localhost';
 $dbuser = 'USER_NAME';
 $dbpass = 'PASSWORD';
 $dbname = 'dbarney_webtools';
-
-// set these variables based upon passed arguments
-$next_day_funding = (isset($arg['NDF']) && $arg['NDF'] == '1');
-$runfunding = (isset($arg['FUND']) && $arg['FUND'] == '1');
-$testingenv = (isset($arg['TEST']) && $arg['TEST'] == '1');
-
-// Testing ******************************
-// $next_day_funding = false; 
-// $runfunding = false;            // set this to TRUE only when ready to actually FUND !!
-// $testingenv = true;
-// **************************************
 
 // account types
 $REVENUE_ACCOUNT = 'REVENUE_ACCOUNT';
@@ -581,6 +584,26 @@ function gettoken($db)
     }
 
     return get_active_token($db);
+}
+
+function my_arg_parser($arguments, $target)
+{
+    $result = '0';
+
+    if (!is_null($arguments))
+    {
+        // check each ARG for our TARGET 
+        foreach($arguments as $arg)
+        {
+            if(strpos($arg, $target) !== false){
+                $arr = explode("=", $arg);
+                $result = $arr[1];
+            }
+        }
+    }
+
+    // echo "{$target} return value: {$result} <br>";
+    return $result;
 }
 
 function get_active_token($db)
