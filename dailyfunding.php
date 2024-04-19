@@ -224,6 +224,8 @@ function do_funding(
     $logid = 0;
 
     $accounts_array = build_funding_accounts($funding_amounts);
+    // echo "<pre>";echo var_dump($accounts_array);echo "</pre>";
+
     if (!is_null($accounts_array)) {
         $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "funding" => $accounts_array);
         // echo "<pre>";echo var_dump($postarr);echo "</pre>";
@@ -409,6 +411,9 @@ function calculate_funding_amounts(
         $merchant_dollars = round(($merchant_dollars - $CHARGEBACK_FEE_AMOUNT), 2);
 
         $merchant_dollars = round(($merchant_dollars - $chargeback_amount), 2);
+
+        // round the CHARGEBACK amount value for consistency
+        $chargeback_amount = round(($chargeback_amount), 2);
     }
 
     $result = array($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount);
