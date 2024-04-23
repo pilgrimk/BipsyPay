@@ -3,6 +3,7 @@
 echo "Running dailyfunding... <br>";
 
 // Check if the script is being run from the command line (CLI)
+$my_arguments = '';
 if (php_sapi_name() === 'cli') {
     // Check if command-line arguments are provided
     if (isset($argv[1])) {
@@ -312,10 +313,13 @@ function get_account_balance($db, $merchant_id, $runlogid)
 function get_chargeback_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
-    global $CHARGEBACK_ACCOUNT;
 
-    $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "account_type" => $CHARGEBACK_ACCOUNT);
-    list($apires, $logid) = api_call($db, 'account/balance', $postarr, $access_token, $runlogid);
+    $yesterdays_date = date('Y-m-d',strtotime("-1 days"));
+    $location_id_arr = array('operator' => 'EQ', 'value' => $merchant_id);
+    $date_added_arr = array('operator' => 'EQ', 'value' => $yesterdays_date);
+
+    $postarr = array('limit' => '1000', 'page' => '1', "query" => array('location_id' => $location_id_arr, 'date_added' => $date_added_arr));
+    list($apires, $logid) = api_call($db, 'transaction/chargebacks', $postarr, $access_token, $runlogid);
 
     if (is_null($apires)) {
         $data = null;
@@ -326,9 +330,27 @@ function get_chargeback_balance($db, $merchant_id, $runlogid)
 
     if (is_null($data) || isset($data['error'])) {
         return 0;
+    } elseif (($data['result'] != 'SUCCESS') || ($data['response']['summary_status'] != 'FOUND')) {
+        return 0;
     } else {
-        return $data['account']['balance'];
+        return parse_chargeback_response($data['response']['chargebacks']);
     }
+}
+
+function parse_chargeback_response($chargebacks) {
+    $chargeback_total = 0;
+
+    // echo "<pre>";echo var_dump($chargebacks);echo "</pre>";
+
+    foreach($chargebacks as $chrbck)
+    {
+        // check for OPEN chargebacks
+        if($chrbck['status_description'] == 'OPEN'){
+            $chargeback_total =  round(($chargeback_total + $chrbck['dispute_amount']), 2); ;
+        }
+    }    
+
+    return $chargeback_total;
 }
 
 function get_reserve_balance($db, $merchant_id, $runlogid)
@@ -590,7 +612,7 @@ function my_arg_parser($arguments, $target)
 {
     $result = '0';
 
-    if (!is_null($arguments))
+    if (!is_null($arguments) && ($arguments != ''))
     {
         // check each ARG for our TARGET 
         foreach($arguments as $arg)
