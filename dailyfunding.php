@@ -112,15 +112,15 @@ function run_merchants($db)
     $zerofundcount = 0;
 
     foreach ($merchants as $merchant) {
-        // get the recon_type
-        $recon_type = $merchant['recon_type'];
+        // get the recon_day
+        $recon_day = $merchant['recon_day'];
 
         // in all cases run regular daily funding
         $ismonthlyfunding = false;
-        // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']}, recon_type: {$recon_type}, running daily account balance" . "\n";
+        // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']}, recon_day: {$recon_day}, running daily account balance" . "\n";
         list($runcount, $fundcount, $zerofundcount) = do_merchant_funding(  $db, 
                                                                             $merchant, 
-                                                                            $recon_type, 
+                                                                            $recon_day, 
                                                                             $runlogid, 
                                                                             $runcount, 
                                                                             $fundcount, 
@@ -128,13 +128,13 @@ function run_merchants($db)
                                                                             $runfunding, 
                                                                             $ismonthlyfunding);
 
-        // for recon_type > 0 check billing day and do monthly funding if appropriate
-        if (($recon_type > 0) && (check_billing_day($recon_type))) {
-            // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']}, recon_type: {$recon_type}, running monthly account balance" . "\n";
+        // for recon_day > 0 check billing day and do monthly funding if appropriate
+        if (($recon_day > 0) && (check_billing_day($recon_day))) {
+            // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']}, recon_day: {$recon_day}, running monthly account balance" . "\n";
             $ismonthlyfunding = true;
             list($runcount, $fundcount, $zerofundcount) = do_merchant_funding(  $db, 
                                                                                 $merchant, 
-                                                                                $recon_type, 
+                                                                                $recon_day, 
                                                                                 $runlogid, 
                                                                                 $runcount, 
                                                                                 $fundcount, 
@@ -148,7 +148,7 @@ function run_merchants($db)
     $db->query($inssql);
 }
 
-function do_merchant_funding($db, $merchant, $recon_type, $runlogid, $runcount, $fundcount, $zerofundcount, $runfunding, $ismonthlyfunding){
+function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $fundcount, $zerofundcount, $runfunding, $ismonthlyfunding){
     //run through res and get balance
     //then figure out both buckets of money
     //log info to funding table
@@ -196,7 +196,7 @@ function do_merchant_funding($db, $merchant, $recon_type, $runlogid, $runcount, 
                 $merchant_acct_balance,
                 $merchant['disc_rate'],
                 $merchant['surcharge'],
-                $recon_type,
+                $recon_day,
                 $merchant['reserve_rate'],
                 $merchant['reserve_cap'],
                 $reserve_balance,
@@ -209,11 +209,11 @@ function do_merchant_funding($db, $merchant, $recon_type, $runlogid, $runcount, 
                 $disc_rate_dollars,
                 $reserve_rate_dollars,
                 $chargeback_amount,
-                $recon_type
+                $recon_day
             );
 
             // echo "Merchant - {$merchant_mid} {$merchant['merchant_name']} {$merchant['location_name']}" . "\n";
-            // echo "Reconcile Type - {$recon_type}, Surcharge - {$merchant['surcharge']}, Next Day Funding - {$merchant['next_day_funding']}" . "\n";
+            // echo "Reconcile Day - {$recon_day}, Surcharge - {$merchant['surcharge']}, Next Day Funding - {$merchant['next_day_funding']}" . "\n";
             // echo "Acct Bal - {$merchant_acct_balance}" . "\n";
             // echo "Dics Rate - {$merchant['disc_rate']}" . "\n";
             // echo "Merchant Bal - {$merchant_dollars}" . "\n";
@@ -469,7 +469,7 @@ function calculate_funding_amounts(
     $merchant_acct_balance,
     $disc_rate,
     $surcharge,
-    $recon_type,
+    $recon_day,
     $reserve_rate,
     $reserve_cap,
     $reserve_balance,
@@ -482,7 +482,7 @@ function calculate_funding_amounts(
     $reserve_rate_dollars = 0;
 
     // calculate surcharge amount
-    if (($recon_type > 0) && (!$ismonthlyfunding)) {
+    if (($recon_day > 0) && (!$ismonthlyfunding)) {
         // do NOT apply surcharge, 
         $disc_rate_dollars = 0;
     } elseif ($surcharge == 0) {
@@ -544,7 +544,7 @@ function calculate_funding_amounts(
     return $result;
 }
 
-function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount, $recon_type)
+function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount, $recon_day)
 {
     global $REVENUE_ACCOUNT;
     global $FEE_ACCOUNT;
