@@ -1,6 +1,6 @@
 <?php
 // BEGIN MAIN PHP script ---------------------------------------------
-echo "Running dailyfunding... <br>";
+echo "Running dailyfunding..." . "\n";
 
 // Check if the script is being run from the command line (CLI)
 $my_arguments = '';
@@ -11,7 +11,7 @@ if (php_sapi_name() === 'cli') {
         // var_dump($argv);
         $my_arguments = $argv;
     } else {
-        "No command line parameters found. <br>";
+        "No command line parameters found." . "\n";
     }
 } else {
     // If not running from the command line, assume it's a web request
@@ -22,7 +22,7 @@ if (php_sapi_name() === 'cli') {
         // var_dump($query);
         $my_arguments = $query;
     } else {
-        echo "No query string parameters found. <br>";
+        echo "No query string parameters found." . "\n";
     }
 }
 
@@ -38,7 +38,7 @@ $testingenv = (my_arg_parser($my_arguments, 'TEST') == '1');
 // ************************************** 
 
 // var_dump($my_arguments);
-// echo "next_day_funding: {$next_day_funding}, runfunding: {$runfunding}, testingenv:{$testingenv}" . "<br>";
+// echo "next_day_funding: {$next_day_funding}, runfunding: {$runfunding}, testingenv:{$testingenv}" . "\n";
 
 // GLOBAL variable declarations
 $apiurl = "https://api.carat-platforms.fiserv.com/";
@@ -61,7 +61,7 @@ $CHARGEBACK_FEE_AMOUNT = 25.00;
 
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
 $access_token = gettoken($db);
-// echo "main, access_token: $access_token" . "<br>";
+// echo "main, access_token: $access_token" . "\n";
 
 echo run_merchants($db);
 
@@ -112,114 +112,154 @@ function run_merchants($db)
     $zerofundcount = 0;
 
     foreach ($merchants as $merchant) {
+        // get the recon_type
+        $recon_type = $merchant['recon_type'];
 
-        //run through res and get balance
-        //then figure out both buckets of money
-        //log info to funding table
-        //run funding api to put money in accounts
-        //get balance again and write to fundinglog
-        //update merchant table with last sucesful run date 
-        //if no errors and acctbalance is now zero but not 
-        //if account bal was zero in first check  
+        // in all cases run regular daily funding
+        $ismonthlyfunding = false;
+        // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']}, recon_type: {$recon_type}, running daily account balance" . "\n";
+        list($runcount, $fundcount, $zerofundcount) = do_merchant_funding(  $db, 
+                                                                            $merchant, 
+                                                                            $recon_type, 
+                                                                            $runlogid, 
+                                                                            $runcount, 
+                                                                            $fundcount, 
+                                                                            $zerofundcount, 
+                                                                            $runfunding, 
+                                                                            $ismonthlyfunding);
 
-        $merchant_mid = $merchant['mid'];
-        $ballogid = 0;
-        $fundlogid = 0;
-        $balafterlogid = 0;
-        $reserve_balance = 0;
-        $reserve_rate_dollars = 0;
-        $chargeback_amount = 0;
-
-        list($merchant_acct_balance, $ballogid) = get_account_balance($db, $merchant_mid, $runlogid);
-
-        if ($merchant_acct_balance == 'error') {
-            $merchant_acct_balance = '0';
-        }
-
-        $chargeback_amount = get_chargeback_balance($db, $merchant_mid, $runlogid);
-
-        if ($merchant_acct_balance != 'error') {
-            if ($merchant['reserve_rate'] > 0) {
-                $reserve_balance = get_reserve_balance($db, $merchant_mid, $runlogid);
-            }
-
-            echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, resv cap: {$merchant['reserve_cap']}, chargeback amount: {$chargeback_amount} <br>";
-
-            if ($merchant_acct_balance > 0) {
-                $runcount++;
-
-                list($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount) = calculate_funding_amounts(
-                    $merchant_acct_balance,
-                    $merchant['disc_rate'],
-                    $merchant['surcharge'],
-                    $merchant['recon_type'],
-                    $merchant['reserve_rate'],
-                    $merchant['reserve_cap'],
-                    $reserve_balance,
-                    $chargeback_amount
-                );
-
-                $fund_amounts = build_fund_amounts(
-                    $merchant_dollars,
-                    $disc_rate_dollars,
-                    $reserve_rate_dollars,
-                    $chargeback_amount,
-                    $merchant['recon_type']
-                );
-
-                // echo "Merchant - {$merchant_mid} {$merchant['merchant_name']} {$merchant['location_name']}<br>";
-                // echo "Reconcile Type - {$merchant['recon_type']}, Surcharge - {$merchant['surcharge']}, Next Day Funding - {$merchant['next_day_funding']}<br>";
-                // echo "Acct Bal - {$merchant_acct_balance} <br>";
-                // echo "Dics Rate - {$merchant['disc_rate']} <br>";
-                // echo "Merchant Bal - {$merchant_dollars} <br>";
-                // echo "Disc Rate Bal - {$disc_rate_dollars} <br>";
-                // echo "Reserve Rate - {$merchant['reserve_rate']}, Reserve Cap - {$merchant['reserve_cap']}, Reserve Balance - {$reserve_balance} <br>";
-                // echo "Log ID - {$ballogid} <br>";
-
-                if ($runfunding && (!is_null($fund_amounts))) {
-                    list($fundingres, $fundlogid) = do_funding($db, $fund_amounts, $merchant_mid, $runlogid);
-                    $fundcount++;
-                }
-
-                list($merchant_acct_balance_after, $balafterlogid) = get_account_balance($db, $merchant_mid, $runlogid);
-
-                if ($merchant_acct_balance_after == 'error') {
-                    $merchant_acct_balance_after = $merchant_acct_balance;
-                }
-
-                $errorres = $db->query("SELECT count(*) as errorcount from api_log where id in ($ballogid,$fundlogid,$balafterlogid) and haserror = 1")->fetchAll();
-                $errorcount = $errorres[0]['errorcount'];
-                if ($errorcount > 0) {
-                    echo "Count API_LOG errors logged: {$errorcount} for ballogid: {$ballogid}, fundlogid: {$fundlogid}, balafterlogid: {$balafterlogid} <br>";
-                }
-
-                $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,reserves,chargebacks,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$reserve_rate_dollars,$chargeback_amount,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
-                // echo $logsql . "<br>";
-
-                $insert = $db->query($logsql);
-                // echo "<pre>";echo var_dump($insert);echo "</pre>";
-
-                $finallogid = $db->lastInsertID();
-
-                if ($fundlogid > 0) {
-                    $procsql = "UPDATE merchants set processed = '" . date('Y-m-d H:i:s') . "' where mid = {$merchant_mid}";
-                    $db->query($procsql);
-                }
-            }
-        } else {
-            echo "no money :(";
-            $zerofundcount++;
-        }
+        // for recon_type > 0 check billing day and do monthly funding if appropriate
+        if (($recon_type > 0) && (check_billing_day($recon_type))) {
+            // echo "Merchant - {$merchant['mid']} {$merchant['merchant_name']}, recon_type: {$recon_type}, running monthly account balance" . "\n";
+            $ismonthlyfunding = true;
+            list($runcount, $fundcount, $zerofundcount) = do_merchant_funding(  $db, 
+                                                                                $merchant, 
+                                                                                $recon_type, 
+                                                                                $runlogid, 
+                                                                                $runcount, 
+                                                                                $fundcount, 
+                                                                                $zerofundcount, 
+                                                                                $runfunding, 
+                                                                                $ismonthlyfunding);
+        }                                                                            
     }
 
     $inssql = "update run_log set endtime = '" . date('Y-m-d H:i:s') . "',activecount=$merchcount,runcount=$runcount,fundcount=$fundcount,zerofundcount=$zerofundcount WHERE id = $runlogid ";
     $db->query($inssql);
 }
 
+function do_merchant_funding($db, $merchant, $recon_type, $runlogid, $runcount, $fundcount, $zerofundcount, $runfunding, $ismonthlyfunding){
+    //run through res and get balance
+    //then figure out both buckets of money
+    //log info to funding table
+    //run funding api to put money in accounts
+    //get balance again and write to fundinglog
+    //update merchant table with last sucesful run date 
+    //if no errors and acctbalance is now zero but not 
+    //if account bal was zero in first check 
+
+    $merchant_mid = $merchant['mid'];
+    $ballogid = 0;
+    $fundlogid = 0;
+    $balafterlogid = 0;
+    $reserve_balance = 0;
+    $reserve_rate_dollars = 0;
+    $chargeback_amount = 0;
+
+    if ($ismonthlyfunding){
+        list($merchant_acct_balance, $ballogid) = get_monthly_account_balance($db, $merchant_mid, $runlogid);
+    } else {
+        list($merchant_acct_balance, $ballogid) = get_daily_account_balance($db, $merchant_mid, $runlogid);
+    }
+
+    if ($merchant_acct_balance == 'error') {
+        $merchant_acct_balance = '0';
+    }
+
+    $chargeback_amount = get_chargeback_balance($db, $merchant_mid, $runlogid);
+
+    if ($merchant_acct_balance != 'error') {
+        if ($merchant['reserve_rate'] > 0) {
+            $reserve_balance = get_reserve_balance($db, $merchant_mid, $runlogid);
+        }
+
+        echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, resv cap: {$merchant['reserve_cap']}, chargeback amount: {$chargeback_amount}, ismonthlyfunding: {$ismonthlyfunding} \n";
+
+        if ($merchant_acct_balance > 0) {
+            $runcount++;
+
+            list($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount) = calculate_funding_amounts(
+                $merchant_acct_balance,
+                $merchant['disc_rate'],
+                $merchant['surcharge'],
+                $recon_type,
+                $merchant['reserve_rate'],
+                $merchant['reserve_cap'],
+                $reserve_balance,
+                $chargeback_amount,
+                $ismonthlyfunding
+            );
+
+            $fund_amounts = build_fund_amounts(
+                $merchant_dollars,
+                $disc_rate_dollars,
+                $reserve_rate_dollars,
+                $chargeback_amount,
+                $recon_type
+            );
+
+            // echo "Merchant - {$merchant_mid} {$merchant['merchant_name']} {$merchant['location_name']}" . "\n";
+            // echo "Reconcile Type - {$recon_type}, Surcharge - {$merchant['surcharge']}, Next Day Funding - {$merchant['next_day_funding']}" . "\n";
+            // echo "Acct Bal - {$merchant_acct_balance}" . "\n";
+            // echo "Dics Rate - {$merchant['disc_rate']}" . "\n";
+            // echo "Merchant Bal - {$merchant_dollars}" . "\n";
+            // echo "Disc Rate Bal - {$disc_rate_dollars}" . "\n";
+            // echo "Reserve Rate - {$merchant['reserve_rate']}, Reserve Cap - {$merchant['reserve_cap']}, Reserve Balance - {$reserve_balance}" . "\n";
+            // echo "Log ID - {$ballogid}" . "\n";
+
+            if ($runfunding && (!is_null($fund_amounts))) {
+                list($fundingres, $fundlogid) = do_funding($db, $fund_amounts, $merchant_mid, $ismonthlyfunding, $runlogid);
+                $fundcount++;
+            }
+
+            list($merchant_acct_balance_after, $balafterlogid) = get_daily_account_balance($db, $merchant_mid, $runlogid);
+
+            if ($merchant_acct_balance_after == 'error') {
+                $merchant_acct_balance_after = $merchant_acct_balance;
+            }
+
+            $errorres = $db->query("SELECT count(*) as errorcount from api_log where id in ($ballogid,$fundlogid,$balafterlogid) and haserror = 1")->fetchAll();
+            $errorcount = $errorres[0]['errorcount'];
+            if ($errorcount > 0) {
+                echo "Count API_LOG errors logged: {$errorcount} for ballogid: {$ballogid}, fundlogid: {$fundlogid}, balafterlogid: {$balafterlogid}" . "\n";
+            }
+
+            $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,reserves,chargebacks,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$reserve_rate_dollars,$chargeback_amount,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
+            // echo $logsql . "\n";
+
+            $insert = $db->query($logsql);
+            // echo "<pre>";echo var_dump($insert);echo "</pre>";
+
+            $finallogid = $db->lastInsertID();
+
+            if ($fundlogid > 0) {
+                $procsql = "UPDATE merchants set processed = '" . date('Y-m-d H:i:s') . "' where mid = {$merchant_mid}";
+                $db->query($procsql);
+            }
+        }
+    } else {
+        echo "no money :(";
+        $zerofundcount++;
+    } 
+    
+    return array($runcount, $fundcount, $zerofundcount);
+};
+
 function do_funding(
     $db,
     $funding_amounts,
     $merchant_id,
+    $ismonthlyfunding,
     $runlogid
 ) {
     global $access_token;
@@ -231,7 +271,11 @@ function do_funding(
     // echo "<pre>";echo var_dump($accounts_array);echo "</pre>";
 
     if (!is_null($accounts_array)) {
-        $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "funding" => $accounts_array);
+        if ($ismonthlyfunding) {
+            $postarr = array('merchant_id' => $merchant_id, 'total_amount' => "0.00", 'currency' => 'USD', "accounts" => $accounts_array);
+        } else {
+            $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "funding" => $accounts_array);
+        }
         // echo "<pre>";echo var_dump($postarr);echo "</pre>";
         list($apires, $logid) = api_call($db, 'funding/instruction', $postarr, $access_token, $runlogid);
     }
@@ -285,11 +329,11 @@ function parse_account_balance($data)
         $count++;
     }
 
-    // echo "parse_account_balance, balance: {$result} <br>";
+    // echo "parse_account_balance, balance: {$result}" . "\n";
     return $result;
 }
 
-function get_account_balance($db, $merchant_id, $runlogid)
+function get_daily_account_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
     global $INSTRUCTIONAL_HOLD_ACCOUNT; 
@@ -308,6 +352,32 @@ function get_account_balance($db, $merchant_id, $runlogid)
     } else {
         return array($data['account']['balance'], $logid);
     }
+}
+
+function get_monthly_account_balance($db, $merchant_id, $runlogid)
+{
+    global $access_token;
+    $dates = get_last_month_first_and_last();
+
+    $locationarr = array('operator' => 'EQ', 'value' => $merchant_id);
+    $dateaddedarr = array('operator' => 'BW', 'value' => $dates['first_day'], 'and_value' => $dates['last_day']);
+    $queryarr = array('location_id' => $locationarr, 'date_added' => $dateaddedarr);
+    $postarr = array('limit' => 1000, 'page' => 1, "query" => $queryarr);
+    list($apires, $logid) = api_call($db, 'transaction', $postarr, $access_token, $runlogid);
+
+    if (is_null($apires)) {
+        $data = null;
+    } else {
+        $data = json_decode($apires, TRUE);
+    }
+
+    if (is_null($data) || isset($data['error'])) {
+        return array('error', $logid);
+    } elseif (($data['result'] != 'SUCCESS') || ($data['response']['summary_status'] != 'FOUND')) {
+        return array(0, $logid);
+    } else {
+        return array(parse_transactions_response($data['response']['transactions']), $logid);
+    }    
 }
 
 function get_chargeback_balance($db, $merchant_id, $runlogid)
@@ -353,6 +423,22 @@ function parse_chargeback_response($chargebacks) {
     return $chargeback_total;
 }
 
+function parse_transactions_response($transactions) {
+    $transactions_total = 0;
+
+    // echo "<pre>";echo var_dump(transactions);echo "</pre>";
+
+    foreach($transactions as $transaction)
+    {
+        // sum up the tranaction amounts
+        if(($transaction['record_type'] == 'CREDIT_DETAIL_FUNDED') && ($transaction['reject_indicator'] == 'N')){
+            $transactions_total =  round(($transactions_total + $transaction['transaction_amount']), 2); ;
+        }
+    }    
+
+    return $transactions_total;
+}
+
 function get_reserve_balance($db, $merchant_id, $runlogid)
 {
     global $access_token;
@@ -383,7 +469,8 @@ function calculate_funding_amounts(
     $reserve_rate,
     $reserve_cap,
     $reserve_balance,
-    $chargeback_amount
+    $chargeback_amount,
+    $ismonthlyfunding
 ) {
     global $CHARGEBACK_FEE_AMOUNT; 
     $merchant_dollars = $merchant_acct_balance;
@@ -391,7 +478,7 @@ function calculate_funding_amounts(
     $reserve_rate_dollars = 0;
 
     // calculate surcharge amount
-    if ($recon_type == 1) {
+    if (($recon_type > 0) && (!$ismonthlyfunding)) {
         // do NOT apply surcharge, 
         $disc_rate_dollars = 0;
     } elseif ($surcharge == 0) {
@@ -404,41 +491,47 @@ function calculate_funding_amounts(
         $merchant_dollars = round(($merchant_acct_balance  / (1 + $disc_rate)), 2);
         // divide by DISCOUNT_RATE
         $disc_rate_dollars = round($merchant_acct_balance - ($merchant_acct_balance  / (1 + $disc_rate)), 2);
-        // echo "acct bal: {$merchant_acct_balance}, calc: ({$merchant_acct_balance}  / (1 + {$disc_rate})) <br>";
+        // echo "acct bal: {$merchant_acct_balance}, calc: ({$merchant_acct_balance}  / (1 + {$disc_rate}))" . "\n";
     }
 
-    // calculate reserve amount
-    if ($reserve_rate > 0) {
-        // echo "Reserve Rate: {$reserve_rate}, Reserve Cap: {$reserve_cap}, Reserve Balance: {$reserve_balance} <br>";
+    if ($ismonthlyfunding) {
+        // for monthly calculations we only need REVENUE_ACCOUNT = FEE_ACCOUNT * (-1)
+        $merchant_dollars = $disc_rate_dollars * (-1);
+    } else {
 
-        // divide by RESERVE_RATE
-        $reserve_rate_dollars = round(($merchant_acct_balance * $reserve_rate), 2);
+        // calculate reserve amount
+        if (($reserve_rate > 0) && (!$ismonthlyfunding)) {
+            // echo "Reserve Rate: {$reserve_rate}, Reserve Cap: {$reserve_cap}, Reserve Balance: {$reserve_balance}" . "\n";
 
-        // if there's a current RESERVE_CAP we have to work within that limit
-        if ($reserve_cap > 0) {
-            if ($reserve_balance >= $reserve_cap) {
-                // we've met the reserve cap
-                $reserve_rate_dollars = 0;
-            } elseif (($reserve_cap - $reserve_balance) <=  $reserve_rate_dollars) {
-                // if there's a current RESERVE_BALANCE make sure we account for the amount
-                $reserve_rate_dollars = round(($reserve_cap - $reserve_balance), 2);
+            // divide by RESERVE_RATE
+            $reserve_rate_dollars = round(($merchant_acct_balance * $reserve_rate), 2);
+
+            // if there's a current RESERVE_CAP we have to work within that limit
+            if ($reserve_cap > 0) {
+                if ($reserve_balance >= $reserve_cap) {
+                    // we've met the reserve cap
+                    $reserve_rate_dollars = 0;
+                } elseif (($reserve_cap - $reserve_balance) <=  $reserve_rate_dollars) {
+                    // if there's a current RESERVE_BALANCE make sure we account for the amount
+                    $reserve_rate_dollars = round(($reserve_cap - $reserve_balance), 2);
+                }
             }
+
+            // finally apply the calculated reserve rate amount to the running balance
+            $merchant_dollars = round(($merchant_dollars - $reserve_rate_dollars), 2);
         }
 
-        // finally apply the calculated reserve rate amount to the running balance
-        $merchant_dollars = round(($merchant_dollars - $reserve_rate_dollars), 2);
-    }
+        // CHARGEBACK is a big hammer, applied even if the dollar amount goes negative !!
+        if (($chargeback_amount > 0) && (!$ismonthlyfunding)) {
+            // first apply CHARGEBACK fees
+            $disc_rate_dollars = round(($disc_rate_dollars + $CHARGEBACK_FEE_AMOUNT), 2);
+            $merchant_dollars = round(($merchant_dollars - $CHARGEBACK_FEE_AMOUNT), 2);
 
-    // CHARGEBACK is a big hammer, applied even if the dollar amount goes negative !!
-    if ($chargeback_amount > 0) {
-        // first apply CHARGEBACK fees
-        $disc_rate_dollars = round(($disc_rate_dollars + $CHARGEBACK_FEE_AMOUNT), 2);
-        $merchant_dollars = round(($merchant_dollars - $CHARGEBACK_FEE_AMOUNT), 2);
+            $merchant_dollars = round(($merchant_dollars - $chargeback_amount), 2);
 
-        $merchant_dollars = round(($merchant_dollars - $chargeback_amount), 2);
-
-        // round the CHARGEBACK amount value for consistency
-        $chargeback_amount = round(($chargeback_amount), 2);
+            // round the CHARGEBACK amount value for consistency
+            $chargeback_amount = round(($chargeback_amount), 2);
+        }        
     }
 
     $result = array($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount);
@@ -458,7 +551,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate
     if ($merchant_dollars != 0) {
         $amounts[$REVENUE_ACCOUNT] = $merchant_dollars;
     }
-    if (($recon_type == 0) && ($disc_rate_dollars > 0)) {
+    if (($disc_rate_dollars != 0)) {
         $amounts[$FEE_ACCOUNT] = $disc_rate_dollars;
     }
     if ($reserve_rate_dollars != 0) {
@@ -497,16 +590,43 @@ function build_funding_accounts($fund_amounts)
     return $accounts;
 }
 
+function check_billing_day($billing_day) {
+    // Get the current time which is UTC +7
+    $current_datetime = new DateTime();
+
+    // Adjust for local time difference
+    $current_datetime->modify('-7 hours');
+
+    // Get adjusted day as an integer
+    $day_of_month = $current_datetime->format('j'); // 'j' is the day of the month without leading zeros
+    
+    // Check if today's day matches the provided billing day
+    return ($day_of_month == $billing_day);
+}
+
+function get_last_month_first_and_last() {
+    // Get the first day of last month
+    $first_day_last_month = date("Y-m-01", strtotime("first day of last month"));
+    
+    // Get the last day of last month
+    $last_day_last_month = date("Y-m-t", strtotime("last day of last month"));
+    
+    return [
+        'first_day' => $first_day_last_month,
+        'last_day' => $last_day_last_month
+    ];
+}
+
 function api_call($db, $method, $postarr, $token, $runlogid)
 {
     global $apiurl;
 
-    // echo "-- api_call, print_r(method): " . print_r($method) . "<br>";
-    // echo "-- api_call, print_r(postarr): " . print_r($postarr) . "<br>";
-    // echo "api_call, runlogid: $runlogid" . "<br>";
+    // echo "-- api_call, print_r(method): " . print_r($method)" . "\n";
+    // echo "-- api_call, print_r(postarr): " . print_r($postarr)" . "\n";
+    // echo "api_call, runlogid: $runlogid" . "\n";
 
     $poststring2 = json_encode($postarr);
-    // echo "api_call, poststring: $poststring2 <br>";
+    // echo "api_call, poststring: $poststring2" . "\n";
 
     // make the CURL call
     $verbose = false;
@@ -548,7 +668,7 @@ function gettoken($db)
             $newtokenflag = 0;
         }
     }
-    // echo "gettoken, newtokenflag: $newtokenflag"."<br>"; exit();
+    // echo "gettoken, newtokenflag: $newtokenflag" . "\n"; exit();
 
     if ($newtokenflag == 1) {
         global $apiusername;
@@ -572,7 +692,7 @@ function gettoken($db)
             'Accept-Language: en;q=0.8,es-cl;q=0.5,zh-cn;q=0.3',
             'Authorization: Basic ' . base64_encode($username . ':' . $password)
         ), true);
-        //echo "gettoken, curlrequeststr: $curlrequeststr"."<br>";
+        //echo "gettoken, curlrequeststr: $curlrequeststr" . "\n";
 
         if (is_null($response)) {
             $data = "";
@@ -581,7 +701,7 @@ function gettoken($db)
         }
 
         $curlresponsestr = var_export($data, TRUE);
-        // echo "gettoken, curlresponsestr: $curlresponsestr" . "<br>";
+        // echo "gettoken, curlresponsestr: $curlresponsestr" . "\n";
 
         if ($data == "") {
             $haserror = '1';
@@ -624,7 +744,7 @@ function my_arg_parser($arguments, $target)
         }
     }
 
-    // echo "{$target} return value: {$result} <br>";
+    // echo "{$target} return value: {$result}" . "\n";
     return $result;
 }
 
