@@ -183,7 +183,11 @@ function do_merchant_funding($db, $merchant, $recon_type, $runlogid, $runcount, 
             $reserve_balance = get_reserve_balance($db, $merchant_mid, $runlogid);
         }
 
-        echo "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, resv cap: {$merchant['reserve_cap']}, chargeback amount: {$chargeback_amount}, ismonthlyfunding: {$ismonthlyfunding} \n";
+        echo    "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, " . 
+                "acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, " .
+                "resv cap: {$merchant['reserve_cap']}, " .
+                "chargeback amount: {$chargeback_amount}, " .
+                "ismonthlyfunding: " . (int)$ismonthlyfunding . "\n";
 
         if ($merchant_acct_balance > 0) {
             $runcount++;
