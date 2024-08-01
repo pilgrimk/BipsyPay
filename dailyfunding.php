@@ -176,7 +176,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
         $merchant_acct_balance = '0';
     }
 
-    $chargeback_amount = get_chargeback_balance($db, $merchant_mid, $runlogid);
+    if (!$ismonthlyfunding){ $chargeback_amount = get_chargeback_balance($db, $merchant_mid, $runlogid); }
 
     if ($merchant_acct_balance != 'error') {
         if ($merchant['reserve_rate'] > 0) {
@@ -184,7 +184,8 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
         }
 
         echo    "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, " . 
-                "acct balance: {$merchant_acct_balance}, resv balance: {$reserve_balance}, " .
+                "merchant acct balance: {$merchant_acct_balance}, " .
+                "resv balance: {$reserve_balance}, " .
                 "resv cap: {$merchant['reserve_cap']}, " .
                 "chargeback amount: {$chargeback_amount}, " .
                 "ismonthlyfunding: " . (int)$ismonthlyfunding . "\n";
@@ -271,7 +272,7 @@ function do_funding(
     $apires = null;
     $logid = 0;
 
-    $accounts_array = build_funding_accounts($funding_amounts);
+    $accounts_array = build_funding_accounts($funding_amounts, $ismonthlyfunding);
     // echo "<pre>";echo var_dump($accounts_array);echo "</pre>";
 
     if (!is_null($accounts_array)) {
@@ -500,7 +501,7 @@ function calculate_funding_amounts(
 
     if ($ismonthlyfunding) {
         // for monthly calculations we only need REVENUE_ACCOUNT = FEE_ACCOUNT * (-1)
-        $merchant_dollars = $disc_rate_dollars * (-1);
+        $merchant_dollars = round(($disc_rate_dollars * (-1)), 2);
     } else {
 
         // calculate reserve amount
@@ -569,7 +570,7 @@ function build_fund_amounts($merchant_dollars, $disc_rate_dollars, $reserve_rate
     return $amounts;
 }
 
-function build_funding_accounts($fund_amounts)
+function build_funding_accounts($fund_amounts, $ismonthlyfunding)
 {
     global $REVENUE_ACCOUNT;
     global $FEE_ACCOUNT;
@@ -578,10 +579,18 @@ function build_funding_accounts($fund_amounts)
     $accounts = [];
 
     if (isset($fund_amounts[$REVENUE_ACCOUNT])) {
-        $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT], 'type' => 'CREDIT');
+        if ($ismonthlyfunding) {
+            $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT]);
+        } else {
+            $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT], 'type' => 'CREDIT');
+        }
     }
     if (isset($fund_amounts[$FEE_ACCOUNT])) {
-        $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT], 'type' => 'CREDIT');
+        if ($ismonthlyfunding) {
+            $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT]);
+        } else {
+            $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT], 'type' => 'CREDIT');
+        }        
     }
     if (isset($fund_amounts[$RESERVE_ACCOUNT])) {
         $accounts[] = array('account_type' => $RESERVE_ACCOUNT, 'amount' => $fund_amounts[$RESERVE_ACCOUNT], 'type' => 'CREDIT');
