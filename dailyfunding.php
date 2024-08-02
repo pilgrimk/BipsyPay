@@ -184,11 +184,11 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
         }
 
         echo    "Merchant: {$merchant_mid} - {$merchant['merchant_name']}, " . 
-                "merchant acct balance: {$merchant_acct_balance}, " .
-                "resv balance: {$reserve_balance}, " .
-                "resv cap: {$merchant['reserve_cap']}, " .
-                "chargeback amount: {$chargeback_amount}, " .
-                "ismonthlyfunding: " . (int)$ismonthlyfunding . "\n";
+        "merchant acct balance: {$merchant_acct_balance}, " .
+        "resv balance: {$reserve_balance}, " .
+        "resv cap: {$merchant['reserve_cap']}, " .
+        "chargeback amount: {$chargeback_amount}, " .
+        "ismonthlyfunding: " . (int)$ismonthlyfunding . "\n";
 
         if ($merchant_acct_balance > 0) {
             $runcount++;
@@ -276,12 +276,8 @@ function do_funding(
     // echo "<pre>";echo var_dump($accounts_array);echo "</pre>";
 
     if (!is_null($accounts_array)) {
-        if ($ismonthlyfunding) {
-            $postarr = array('merchant_id' => $merchant_id, 'total_amount' => "0.00", 'currency' => 'USD', "accounts" => $accounts_array);
-        } else {
-            $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "funding" => $accounts_array);
-        }
-        // echo "<pre>";echo var_dump($postarr);echo "</pre>";
+        $postarr = array('merchant_id' => $merchant_id, 'currency' => 'USD', "funding" => $accounts_array);
+        // echo "do_funding, postarr <pre>";echo var_dump($postarr);echo "</pre>";
         list($apires, $logid) = api_call($db, 'funding/instruction', $postarr, $access_token, $runlogid);
     }
 
@@ -500,8 +496,8 @@ function calculate_funding_amounts(
     }
 
     if ($ismonthlyfunding) {
-        // for monthly calculations we only need REVENUE_ACCOUNT = FEE_ACCOUNT * (-1)
-        $merchant_dollars = round(($disc_rate_dollars * (-1)), 2);
+        // for monthly calculations we only need REVENUE_ACCOUNT = FEE_ACCOUNT
+        $merchant_dollars = round(($disc_rate_dollars), 2);
     } else {
 
         // calculate reserve amount
@@ -579,18 +575,14 @@ function build_funding_accounts($fund_amounts, $ismonthlyfunding)
     $accounts = [];
 
     if (isset($fund_amounts[$REVENUE_ACCOUNT])) {
-        if ($ismonthlyfunding) {
-            $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT]);
+        if ($ismonthlyfunding){
+            $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT], 'type' => 'DEBIT');
         } else {
             $accounts[] = array('account_type' => $REVENUE_ACCOUNT, 'amount' => $fund_amounts[$REVENUE_ACCOUNT], 'type' => 'CREDIT');
         }
     }
     if (isset($fund_amounts[$FEE_ACCOUNT])) {
-        if ($ismonthlyfunding) {
-            $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT]);
-        } else {
-            $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT], 'type' => 'CREDIT');
-        }        
+        $accounts[] = array('account_type' => $FEE_ACCOUNT, 'amount' => $fund_amounts[$FEE_ACCOUNT], 'type' => 'CREDIT');        
     }
     if (isset($fund_amounts[$RESERVE_ACCOUNT])) {
         $accounts[] = array('account_type' => $RESERVE_ACCOUNT, 'amount' => $fund_amounts[$RESERVE_ACCOUNT], 'type' => 'CREDIT');
@@ -634,12 +626,12 @@ function api_call($db, $method, $postarr, $token, $runlogid)
 {
     global $apiurl;
 
-    // echo "-- api_call, print_r(method): " . print_r($method)" . "\n";
-    // echo "-- api_call, print_r(postarr): " . print_r($postarr)" . "\n";
-    // echo "api_call, runlogid: $runlogid" . "\n";
+    // echo "-- api_call, method <pre>";echo var_dump($method);echo "</pre>";
+    // echo "-- api_call, postarr <pre>";echo var_dump($postarr);echo "</pre>";
+    // echo "-- api_call, runlogid: $runlogid" . "\n";
 
     $poststring2 = json_encode($postarr);
-    // echo "api_call, poststring: $poststring2" . "\n";
+    // echo "-- api_call, poststring2: \n" . print_r($poststring2) . "\n";
 
     // make the CURL call
     $verbose = false;
@@ -665,7 +657,11 @@ function api_call($db, $method, $postarr, $token, $runlogid)
         $haserror = '0';
     }
 
-    $insert = $db->query("INSERT INTO api_log (url,request,response,haserror,runid) VALUES ('{$curlurl}','" . addslashes($curlrequeststr) . "','" . addslashes($curlresponsestr) . "',{$haserror},$runlogid)");
+    // echo "-- api_call, print_r(curlresponsestr): " . print_r($curlresponsestr) . "\n";
+
+    $insert = $db->query("INSERT INTO api_log (url,request,response,haserror,runid) VALUES ('{$curlurl}','" . 
+                            addslashes($curlrequeststr) . "','" . 
+                            addslashes($curlresponsestr) . "',{$haserror},$runlogid)");
     // echo "<pre>";echo var_dump($insert);echo "</pre>";
 
     $logid = $db->lastInsertID();
@@ -681,7 +677,7 @@ function gettoken($db)
             $newtokenflag = 0;
         }
     }
-    // echo "gettoken, newtokenflag: $newtokenflag" . "\n"; exit();
+    // echo "gettoken, newtokenflag: $newtokenflag" . "\n";
 
     if ($newtokenflag == 1) {
         global $apiusername;
