@@ -5,6 +5,33 @@
 require_once('db.php');
 require_once(__DIR__ . '/vendor/autoload.php');
 
+// Check if the script is being run from the command line (CLI)
+$my_arguments = '';
+if (php_sapi_name() === 'cli') {
+    // Check if command-line arguments are provided
+    if (isset($argv[1])) {
+        // $argv contains the parsed arguments
+        // var_dump($argv);
+        $my_arguments = $argv;
+    } else {
+        "No command line parameters found." . "\n";
+    }
+} else {
+    // If not running from the command line, assume it's a web request
+    // Parse query string parameters
+    $query = parse_url($_SERVER['REQUEST_URI'], PHP_URL_QUERY);
+    if ($query) {
+        // $query contains the parsed query string parameters
+        // var_dump($query);
+        $my_arguments = $query;
+    } else {
+        echo "No query string parameters found." . "\n";
+    }
+}
+
+// set these variables based upon passed arguments
+$testingenv = (my_arg_parser($my_arguments, 'TEST') == '1');  
+
 $dbhost = 'localhost';
 $dbuser = 'dbarney_webtools';
 $dbpass = 'Ka5Wvw-8FeY5';
@@ -12,7 +39,7 @@ $dbname = 'dbarney_webtools';
 
 $db = new db($dbhost, $dbuser, $dbpass, $dbname);
 
-if (isset($_REQUEST['testenv'])) {
+if ($testingenv) {
 
   $runtype = "testenvfund";
   $merchantmask = "merchant_name like 'Test%'";
@@ -24,6 +51,7 @@ if (isset($_REQUEST['testenv'])) {
   $urlmask = "url like 'https://fd-pfac%'";
 }
 
+// echo "runtype: {$runtype}" . "\n";
 
 $datetodo = date("Y-m-d");
 
@@ -31,8 +59,8 @@ if (isset($_REQUEST['datetodo'])) {
   $datetodo = date("Y-m-d", strtotime($_REQUEST['datetodo']));
 }
 
-#FUNDING LOG
-$fundingdetailsql = "SELECT
+#DAILY FUNDING LOG
+$dailyfundingdetailsql = "SELECT
 	merchants.mid as \"Merchant ID\",
 	merchants.merchant_name as \"Merchant\", 
 	merchants.location_name as \"Location\", 
@@ -62,9 +90,33 @@ INNER JOIN
 ON 
 	fund_log.runid = run_log.id
 WHERE 
-  run_log.runtype like '{$runtype}%' and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59'
+  run_log.runtype like '{$runtype}%' and fund_type = 0 and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59'
 ORDER BY 
   merchants.next_day_funding DESC, fund_log.fund_date DESC;";
+  
+#MONTHLY FUNDING LOG
+$monthlyfundingdetailsql = "SELECT
+	merchants.mid as \"Merchant ID\",
+	merchants.merchant_name as \"Merchant\", 
+	merchants.location_name as \"Location\", 
+	fund_log.fund_date \"Run Time\", 
+	fund_log.receipts as \"Starting Balance\", 
+	fund_log.deposits as \"Deposit\", 
+	fund_log.fees as \"Fee\"
+FROM
+	fund_log
+	INNER JOIN
+	merchants
+ON 
+	fund_log.mid = merchants.mid
+INNER JOIN
+  run_log
+ON 
+	fund_log.runid = run_log.id
+WHERE 
+  run_log.runtype like '{$runtype}%' and fund_type = 1 and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59'
+ORDER BY 
+  merchants.next_day_funding DESC, fund_log.fund_date DESC;";  
 
 #Active Merchants No Balance
 $activezerobalsql = "select merchants.mid as \"Merchant ID\",
@@ -112,7 +164,7 @@ $summaryerrsql = "select count(DISTINCT fund_log.mid) as \"MIDS\",sum(fund_log.r
 		
 		where run_log.runtype like '{$runtype}%' and fund_date >= '{$datetodo} 00:00:00' and fund_date <= '{$datetodo} 23:59:59' and errorcount > 0;";
 
-echo $summaryerrsql;
+// echo $summaryerrsql;
 
 $emailcss = "<head> <style type = 'text/css'>
 table.paleBlueRows {
@@ -157,30 +209,28 @@ table.paleBlueRows tfoot td {
   font-size: 14px;
 }</style></head>";
 
-// echo "<pre>"; echo var_dump($fundingdetailsql); echo "</pre>";
+// echo "<pre>"; echo var_dump($dailyfundingdetailsql); echo "</pre>";
 
-$fundingdetailsqlres = $db->query($fundingdetailsql)->fetchAll();
+$dailyfundingdetailsqlres = $db->query($dailyfundingdetailsql)->fetchAll();
+$monthlyfundingdetailsqlres = $db->query($monthlyfundingdetailsql)->fetchAll();
 $activezerobalsqlres = $db->query($activezerobalsql)->fetchAll();
 $errordetsqlres = $db->query($errordetsql)->fetchAll();
 $summaryfundsqlres = $db->query($summaryfundsql)->fetchAll();
 $summaryerrsqlres = $db->query($summaryerrsql)->fetchAll();
 
-//echo "<pre>";echo var_dump($fundingdetailsqlres);echo "</pre>";
+//echo "<pre>";echo var_dump($dailyfundingdetailsqlres);echo "</pre>";
 
 $emailbody = $emailcss;
 $emailbody .= count($summaryfundsqlres) > 0 ? gettableforemail($summaryfundsqlres, "Funding Summary") : '';
 $emailbody .= count($summaryerrsqlres) > 0 ? gettableforemail($summaryerrsqlres, "") : '';
-
 $emailbody .= count($activezerobalsqlres) > 0 ? gettableforemail($activezerobalsqlres, "Active Merchant Zero Starting Balance") : '';
-
-$emailbody .= count($fundingdetailsqlres) > 0 ? gettableforemail($fundingdetailsqlres, "Funding Detail") : '';
-
+$emailbody .= count($dailyfundingdetailsqlres) > 0 ? gettableforemail($dailyfundingdetailsqlres, "Daily Funding Detail") : '';
+$emailbody .= count($monthlyfundingdetailsqlres) > 0 ? gettableforemail($monthlyfundingdetailsqlres, "Monthly Funding Detail") : '';
 $emailbody .= count($errordetsqlres) > 0 ? gettableforemail($errordetsqlres, "Error Detail") : '';
 
-echo $emailbody;
-//echo $emailcss . gettableforemail($fundingdetailsqlres,"Funding Detail");
-
-//echo gettableforemail($activezerobalsqlres,"Active Merchants with zero starting balance");
+// echo $emailbody;
+// echo $emailcss . gettableforemail($dailyfundingdetailsqlres,"Daily Funding Detail");
+// echo gettableforemail($activezerobalsqlres,"Active Merchants with zero starting balance");
 
 if (isset($_REQUEST['skipemail'])) {
   echo "NO EMAIL";
@@ -225,6 +275,7 @@ function gettableforemail($res, $resheader, $cssclass = 'paleBlueRows')
 
   return $body;
 }
+
 function sendFundingLogEmail($emailHTML)
 {
   $credentials = SendinBlue\Client\Configuration::getDefaultConfiguration()->setApiKey('api-key', 'XXXXXX');
@@ -240,7 +291,9 @@ function sendFundingLogEmail($emailHTML)
     'replyTo' => ['name' => 'BipsyReporting', 'email' => 'bipsyreporting@bipsypay.com'],
     'to' => [ //[ 'name' => 'Donald Kirchner', 'email' => 'donald.kirchner@gmail.com']
       ['name' => 'Mark Smith', 'email' => 'marksmith@bipsypay.com'],
+      ['name' => 'Mark W Smith', 'email' => 'letrfly@msn.com'],
       ['name' => 'msamaniego cash-llc.com', 'email' => 'msamaniego@cash-llc.com'],
+      ['name' => 'msamaniego bipsy', 'email' => 'mikesam@bipsypay.com'],
       ['name' => 'Jforsyth@cash-llc.com', 'email' => 'Jforsyth@cash-llc.com'],
       ['name' => 'Kevin Pilgrim', 'email' => 'pilgrimka1@yahoo.com']
     ],
@@ -257,3 +310,24 @@ function sendFundingLogEmail($emailHTML)
     echo $e->getMessage(), PHP_EOL;
   }
 }
+
+function my_arg_parser($arguments, $target)
+{
+    $result = '0';
+
+    if (!is_null($arguments) && ($arguments != ''))
+    {
+        // check each ARG for our TARGET 
+        foreach($arguments as $arg)
+        {
+            if(strpos($arg, $target) !== false){
+                $arr = explode("=", $arg);
+                $result = $arr[1];
+            }
+        }
+    }
+
+    // echo "{$target} return value: {$result}" . "\n";
+    return $result;
+}
+

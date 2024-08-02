@@ -239,7 +239,10 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
                 echo "Count API_LOG errors logged: {$errorcount} for ballogid: {$ballogid}, fundlogid: {$fundlogid}, balafterlogid: {$balafterlogid}" . "\n";
             }
 
-            $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,reserves,chargebacks,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$reserve_rate_dollars,$chargeback_amount,$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
+            // Insert into FUND_LOG; for now, FUND_TYPE matches (int)$ismonthlyfunding
+            $logsql = "INSERT INTO fund_log (mid,fund_date,receipts,deposits,fees,reserves,chargebacks,fund_type,startbal_logid,fund_logid,endbal_logid,errorcount,endbal,runid) " .
+            "VALUES ({$merchant_mid}, '" . date('Y-m-d H:i:s') . "', $merchant_acct_balance, $merchant_dollars, $disc_rate_dollars,$reserve_rate_dollars,$chargeback_amount," .
+            (int)$ismonthlyfunding . ",$ballogid,$fundlogid,$balafterlogid,$errorcount,$merchant_acct_balance_after,$runlogid)";
             // echo $logsql . "\n";
 
             $insert = $db->query($logsql);
