@@ -154,7 +154,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
     //log info to funding table
     //run funding api to put money in accounts
     //get balance again and write to fundinglog
-    //update merchant table with last sucesful run date 
+    //update merchant table with last succesful run date 
     //if no errors and acctbalance is now zero but not 
     //if account bal was zero in first check 
 
@@ -165,6 +165,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
     $reserve_balance = 0;
     $reserve_rate_dollars = 0;
     $chargeback_amount = 0;
+    $allow_neg_posting = 0;
 
     if ($ismonthlyfunding){
         list($merchant_acct_balance, $ballogid) = get_monthly_account_balance($db, $merchant_mid, $runlogid);
@@ -187,6 +188,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
         "merchant acct balance: {$merchant_acct_balance}, " .
         "resv balance: {$reserve_balance}, " .
         "resv cap: {$merchant['reserve_cap']}, " .
+        "allow neg posting: {$merchant['allow_neg_posting']}, " .
         "chargeback amount: {$chargeback_amount}, " .
         "ismonthlyfunding: " . (int)$ismonthlyfunding . "\n";
 
@@ -202,6 +204,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
                 $merchant['reserve_cap'],
                 $reserve_balance,
                 $chargeback_amount,
+                $allow_neg_posting,
                 $ismonthlyfunding
             );
 
@@ -219,6 +222,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
             // echo "Dics Rate - {$merchant['disc_rate']}" . "\n";
             // echo "Merchant Bal - {$merchant_dollars}" . "\n";
             // echo "Disc Rate Bal - {$disc_rate_dollars}" . "\n";
+            // echo "Allow Negative Posting - {$allow_neg_posting}" . "\n";
             // echo "Reserve Rate - {$merchant['reserve_rate']}, Reserve Cap - {$merchant['reserve_cap']}, Reserve Balance - {$reserve_balance}" . "\n";
             // echo "Log ID - {$ballogid}" . "\n";
 
@@ -386,29 +390,33 @@ function get_monthly_account_balance($db, $merchant_id, $runlogid)
 
 function get_chargeback_balance($db, $merchant_id, $runlogid)
 {
-    global $access_token;
+    // *** 5/6/2025- we're disabling chargeback functionality at this time ***
+    return 0;
+    // ***********************************************************************
 
-    $yesterdays_date = date('Y-m-d',strtotime("-1 days"));
-    $location_id_arr = array('operator' => 'EQ', 'value' => $merchant_id);
-    $date_added_arr = array('operator' => 'EQ', 'value' => $yesterdays_date);
+    // global $access_token;
 
-    $postarr = array('limit' => '1000', 'page' => '1', "query" => array('location_id' => $location_id_arr, 'date_added' => $date_added_arr));
-    list($apires, $logid) = api_call($db, 'transaction/chargebacks', $postarr, $access_token, $runlogid);
+    // $yesterdays_date = date('Y-m-d',strtotime("-1 days"));
+    // $location_id_arr = array('operator' => 'EQ', 'value' => $merchant_id);
+    // $date_added_arr = array('operator' => 'EQ', 'value' => $yesterdays_date);
 
-    if (is_null($apires)) {
-        $data = null;
-    } else {
-        $data = json_decode($apires, TRUE);
-        // echo "<pre>";echo var_dump($data);echo "</pre>";
-    }
+    // $postarr = array('limit' => '1000', 'page' => '1', "query" => array('location_id' => $location_id_arr, 'date_added' => $date_added_arr));
+    // list($apires, $logid) = api_call($db, 'transaction/chargebacks', $postarr, $access_token, $runlogid);
 
-    if (is_null($data) || isset($data['error'])) {
-        return 0;
-    } elseif (($data['result'] != 'SUCCESS') || ($data['response']['summary_status'] != 'FOUND')) {
-        return 0;
-    } else {
-        return parse_chargeback_response($data['response']['chargebacks']);
-    }
+    // if (is_null($apires)) {
+    //     $data = null;
+    // } else {
+    //     $data = json_decode($apires, TRUE);
+    //     // echo "<pre>";echo var_dump($data);echo "</pre>";
+    // }
+
+    // if (is_null($data) || isset($data['error'])) {
+    //     return 0;
+    // } elseif (($data['result'] != 'SUCCESS') || ($data['response']['summary_status'] != 'FOUND')) {
+    //     return 0;
+    // } else {
+    //     return parse_chargeback_response($data['response']['chargebacks']);
+    // }
 }
 
 function parse_chargeback_response($chargebacks) {
@@ -474,6 +482,7 @@ function calculate_funding_amounts(
     $reserve_cap,
     $reserve_balance,
     $chargeback_amount,
+    $allow_neg_posting,
     $ismonthlyfunding
 ) {
     global $CHARGEBACK_FEE_AMOUNT; 
@@ -536,6 +545,15 @@ function calculate_funding_amounts(
             // round the CHARGEBACK amount value for consistency
             $chargeback_amount = round(($chargeback_amount), 2);
         }        
+    }
+
+    // check ALLOW NEGATIVE POSTING setting
+    if (($merchant_dollars < 0) && (!$allow_neg_posting)){
+        // reset calculated amounts
+        $merchant_dollars = $merchant_acct_balance;
+        $disc_rate_dollars = 0;
+        $reserve_rate_dollars = 0;
+        $chargeback_amount = 0;
     }
 
     $result = array($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount);
