@@ -165,7 +165,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
     $reserve_balance = 0;
     $reserve_rate_dollars = 0;
     $chargeback_amount = 0;
-    $allow_neg_posting = 0;
+    $allow_neg_posting = $merchant['allow_neg_posting'];
 
     if ($ismonthlyfunding){
         list($merchant_acct_balance, $ballogid) = get_monthly_account_balance($db, $merchant_mid, $runlogid);
@@ -188,11 +188,11 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
         "merchant acct balance: {$merchant_acct_balance}, " .
         "resv balance: {$reserve_balance}, " .
         "resv cap: {$merchant['reserve_cap']}, " .
-        "allow neg posting: {$merchant['allow_neg_posting']}, " .
+        "allow neg posting: {$allow_neg_posting}, " .
         "chargeback amount: {$chargeback_amount}, " .
         "ismonthlyfunding: " . (int)$ismonthlyfunding . "\n";
 
-        if ($merchant_acct_balance > 0) {
+        if (($merchant_acct_balance > 0) || (($merchant_acct_balance < 0) && ($allow_neg_posting))){
             $runcount++;
 
             list($merchant_dollars, $disc_rate_dollars, $reserve_rate_dollars, $chargeback_amount) = calculate_funding_amounts(
@@ -223,7 +223,7 @@ function do_merchant_funding($db, $merchant, $recon_day, $runlogid, $runcount, $
             // echo "Merchant Bal - {$merchant_dollars}" . "\n";
             // echo "Disc Rate Bal - {$disc_rate_dollars}" . "\n";
             // echo "Allow Negative Posting - {$allow_neg_posting}" . "\n";
-            // echo "Reserve Rate - {$merchant['reserve_rate']}, Reserve Cap - {$merchant['reserve_cap']}, Reserve Balance - {$reserve_balance}" . "\n";
+            // echo "Reserve Rate - {$merchant['reserve_rate']}, Reserve Rate Dollars - {$reserve_rate_dollars}, Reserve Cap - {$merchant['reserve_cap']}, Reserve Balance - {$reserve_balance}" . "\n";
             // echo "Log ID - {$ballogid}" . "\n";
 
             if ($runfunding && (!is_null($fund_amounts))) {
@@ -496,14 +496,14 @@ function calculate_funding_amounts(
         $disc_rate_dollars = 0;
     } elseif ($surcharge == 0) {
         // do NOT apply surcharge, apply flat rate
-        $merchant_dollars = round(($merchant_acct_balance  -  ($merchant_acct_balance  * $disc_rate)), 2);
+        $merchant_dollars = round(($merchant_acct_balance  -  (abs($merchant_acct_balance)  * $disc_rate)), 2);
         // calculate the flat rate
-        $disc_rate_dollars = round(($merchant_acct_balance * $disc_rate), 2);
+        $disc_rate_dollars = round((abs($merchant_acct_balance) * $disc_rate), 2);
     } else {
         // apply surcharge; this follows original functionality
         $merchant_dollars = round(($merchant_acct_balance  / (1 + $disc_rate)), 2);
         // divide by DISCOUNT_RATE
-        $disc_rate_dollars = round($merchant_acct_balance - ($merchant_acct_balance  / (1 + $disc_rate)), 2);
+        $disc_rate_dollars = round($merchant_acct_balance - (abs($merchant_acct_balance)  / (1 + $disc_rate)), 2);
         // echo "acct bal: {$merchant_acct_balance}, calc: ({$merchant_acct_balance}  / (1 + {$disc_rate}))" . "\n";
     }
 
@@ -517,7 +517,7 @@ function calculate_funding_amounts(
             // echo "Reserve Rate: {$reserve_rate}, Reserve Cap: {$reserve_cap}, Reserve Balance: {$reserve_balance}" . "\n";
 
             // divide by RESERVE_RATE
-            $reserve_rate_dollars = round(($merchant_acct_balance * $reserve_rate), 2);
+            $reserve_rate_dollars = round((abs($merchant_acct_balance) * $reserve_rate), 2);
 
             // if there's a current RESERVE_CAP we have to work within that limit
             if ($reserve_cap > 0) {
